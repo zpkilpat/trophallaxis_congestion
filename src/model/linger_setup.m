@@ -1,5 +1,5 @@
 function S = linger_setup(outdir, fast, tag)
-%LINGER_SETUP  Single-donor model and gain tables shared by Figs. 4 and 5.
+%LINGER_SETUP  Single-donor model and gain tables shared by Figs. 3 and 4.
 %   S = LINGER_SETUP(outdir, fast, tag) returns the afpt and lingermodel
 %   objects, the parameter structs prm and cfg, and the gain tables G, W and
 %   psList (one table per offset in P0LIST). The tables are cached in outdir as

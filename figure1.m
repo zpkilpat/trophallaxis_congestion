@@ -29,7 +29,7 @@ out = draw_panels(outdir);
 figdir = fullfile('output','figs');
 if ~isfolder(figdir), mkdir(figdir); end
 assemble_figure(fullfile(figdir,'fig1'), out.panels, out.tiles, out.canvas, ...
-    'letterxy', [0.17 0; 0.09 0; 0.16 0], 'lettersize', 30*36/44);   % prints at the letter size of Figs. 2-7 at 0.85 textwidth
+    'letterxy', [0.17 0; 0.09 0; 0.16 0], 'lettersize', 30*36/44);   % prints at the letter size of Figs. 2-6 at 0.85 textwidth
 end
 
 % =========================================================================

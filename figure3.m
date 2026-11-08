@@ -1,402 +1,464 @@
 function out = figure3(varargin)
-%FIGURE3 Reproduce the three panels of Figure 3 (search for two donors) and
-%   assemble the lettered figure output/figs/fig3.pdf.
+%FIGURE4 Reproduce the three panels of Figure 3 (recruitment and congestion at
+%   one donor) and assemble the lettered figure output/figs/fig3.pdf.
 %
 % Usage
 %   figure3
+%   figure3('fast',true)                  % low-cost wiring/smoke test
 %   figure3('outdir','output/figure3')
 %
 % Panel map
-%   (a) fig2d   schematic of two donors on the ring and the split of searchers
-%   (b) fig2e   averaged splitting probability against reversal rate, two
-%               donors of unequal absorptivity, arc solution and simulation
-%   (c) fig2f   arrival rates and conditional times with one advertised donor
+%   (a) figL2   stochastic versus substituted-offset recruitment gain
+%   (b) figL3   feeding-time landscape versus abandonment and traffic ratio
+%   (c) figL4   attainable speedup and lingering-regime boundary
 %
-% The two-target solver is atwo. The Monte Carlo ensembles of (b) and (c) are
-% cached in outdir under stamped keys.
+% The single-donor gain tables come from linger_setup and are cached with a
+% parameter stamp. A normal call uses the paper settings. 'fast' uses coarser
+% grids to check that the code runs end to end, and never changes a model
+% parameter.
 
 addpath(genpath(fullfile(fileparts(mfilename('fullpath')), 'src')));
 
 ip = inputParser;
+addParameter(ip,'fast',false);
 addParameter(ip,'outdir',fullfile('output','figure3'));
 parse(ip,varargin{:});
+fast = logical(ip.Results.fast);
 OUTDIR = ip.Results.outdir;
 if ~isfolder(OUTDIR), mkdir(OUTDIR); end
+close all
 
-A   = afpt();
-prm = A.mkprm('kbar',0.0314,'sig',0.8,'beta0',1,'sm',1,'v',1);
-panel_a(OUTDIR);
-out.e = panel_b(prm, OUTDIR);
-out.f = panel_c(prm, OUTDIR);
+S = linger_setup(OUTDIR, fast, 'figure3');
+G = S.G;  W = S.W;  psList = S.psList;  ps = S.ps;  cfg = S.cfg;
+
+if fast
+    rgrid3 = logspace(log10(0.15),log10(5.0),14);
+    rgrid4 = logspace(log10(0.15),log10(5.0),10);
+    dgrid3 = logspace(-2.5,1.0,20);
+    qgrid4 = linspace(0.10,0.95,8);
+    dgrid4 = logspace(-2.5,1.0,14);
+else
+    rgrid3 = logspace(log10(0.15),log10(5.0),34);
+    rgrid4 = logspace(log10(0.15),log10(5.0),61);
+    dgrid3 = logspace(-2.5,1.0,44);
+    qgrid4 = linspace(0.10,0.95,35);
+    dgrid4 = logspace(-2.5,1.0,25);
+end
+
+L2 = panel_a(G,psList,OUTDIR);
+L3 = panel_b(ps,cfg,OUTDIR,dgrid3,rgrid3,0.5);
+L4 = panel_c(G,W,cfg,OUTDIR,rgrid4,qgrid4,cfg.p0,dgrid4);
+
+out = struct('G',G,'W',W,'psList',{psList},'L2',L2,'L3',L3,'L4',L4);
+save(fullfile(OUTDIR,'figure3_results.mat'),'-struct','out');
 
 % Lettered figure, one row of three panel canvases at the panel size.
 figdir = fullfile('output','figs');
 if ~isfolder(figdir), mkdir(figdir); end
 T = [22 19];
 tiles = [0 0 T; T(1) 0 T; 2*T(1) 0 T];
-panels = fullfile(OUTDIR, strcat({'fig2d','fig2e','fig2f'}, '.fig'));
+panels = fullfile(OUTDIR, strcat({'figL2','figL3','figL4'}, '.fig'));
 assemble_figure(fullfile(figdir,'fig3'), panels, tiles, [3*T(1) T(2)]);
+
+fprintf('Figure 3 complete. Panel order: figL2, figL3, figL4.\n');
 end
 
 % =========================================================================
-% Panel (a), fig2d. Two-donor schematic.
+% Panel (a), figL2. Stochastic versus typical-offset recruitment gain.
 % =========================================================================
-function out = panel_a(outdir)
-%PANEL_A  Two-donor schematic. Panel (a).
+function out = panel_a(G, psList, outdir)
+%PANEL_A  Averaged recruitment gain over scenting population.
+%   Psi~(Fbar) from the Poisson-Gaussian average has no threshold and leaves
+%   unity with slope g1 - 1 > 0. Substituting the mean offset into G predicts
+%   a threshold number of scenters below which recruitment does nothing. The
+%   shaded region is what the substitution discards.
 %
-%   Searchers on the ring are split between two donors. Donor 1 absorbs more
-%   strongly (larger, darker disk, kbar_1) and carries the cue plume, a tent
-%   rising off the ring beside it. Donor 2 absorbs more weakly (kbar_2). The
-%   grey arcs from the top of the ring carry the splitting probabilities pi_1
-%   and pi_2, the heavier arc toward the donor that wins more searchers.
+%   The substitution is pinned at unity for Fbar < (p0/p*)^2, where its
+%   argument leaves the cue support. This threshold is ps.Fsub and is printed.
+%   It is set by p*, the offset at which the gain reaches unity, not by sigma.
 %
-%   The palette and glyphs are those of Fig. 1(a). Geometry is in points on the
-%   22 x 19 cm panel canvas, y down, on one axes with equal data aspect that
-%   fills the canvas, so assembly at tile = canvas keeps type size.
-
-if nargin < 1 || isempty(outdir), outdir = fullfile('output','figure3'); end
-if ~isfolder(outdir), mkdir(outdir); end
+%   Line style marks p0 and hue marks the family, keyed by a two-row legend
+%   drawn in the axes. The ratio Psi~ / G(p0/sqrt(Fbar)) is computed and
+%   printed but not drawn.
+%
+%   Psi~ uses the reliance chosen before the offset is drawn (ps.psi). The
+%   substitution curve uses the ridge table G.G, the reliance optimal at the
+%   substituted offset. This is the deterministic shortcut being compared, so
+%   keep G.G here rather than ps.gam.
+%
+%   psList is a cell array of psiTable structs at different p0. Line styles
+%   and colors come from P.p0sty and P.p0cols so panel (a), Fig. 4(c), Fig. 4(a) and
+%   Fig. 4(b) agree. ps.g1 must exceed 1 for every p0 in the list.
+if nargin < 3, outdir = 'output'; end
 P = linger_style();
-
-C.blue  = [0 162 255]/255;                   % searching
-C.navy  = [0 77 128]/255;
-C.green = [29 177 0]/255;
-C.dkgrn = [1 113 0]/255;                     % cue
-C.dgrey = [94 94 94]/255;                    % donor
-C.mgrey = [146 146 146]/255;
-C.ring  = [213 213 213]/255;
-
-cm = 2.54/72;
-PAGE = P.FIG/cm;                             % pt
 h = P.figure(P);
-set(h, 'Color','w', 'InvertHardcopy','off');
-ax = axes(h, 'Units','normalized', 'Position',[0 0 1 1], ...
-          'XLim',[0 PAGE(1)], 'YLim',[0 PAGE(2)], 'YDir','reverse', ...
-          'DataAspectRatio',[1 1 1], 'Visible','off', 'Clipping','off');
-hold(ax, 'on');
-% white corner marks, so the tight crop of the export keeps the full canvas
-for cx = [0 PAGE(1)-0.2], for cy = [0 PAGE(2)-0.2]
-    patch(ax, cx + [0 .2 .2 0], cy + [0 0 .2 .2], 'w', 'EdgeColor','none');
-end, end
-
-ctr = [PAGE(1)/2 + 22, PAGE(2)/2 + 4];  R = 178;  RLW = 20;
-a1 = pi;  a2 = 0;                            % donor angles, y down
-d1 = ctr + R*[cos(a1) sin(a1)];
-d2 = ctr + R*[cos(a2) sin(a2)];
-
-% cue plume, a tent on the ring beside donor 1
-plume(ax, C, ctr, R + RLW/2, a1, 0.62, 92);
-ring(ax, C, ctr, R, RLW);
-
-% split arcs from the top of the ring toward each donor
-ra = R - 52;  top = -pi/2;
-splitArc(ax, C, ctr, ra, top - 0.16, a1 - 2*pi + 0.30, 7.0, 30);
-splitArc(ax, C, ctr, ra, top + 0.16, a2 - 0.30, 4.0, 22);
-math(ax, ctr + (ra - 60)*[cos(-2.42) sin(-2.42)], '$\pi_1$', P.LSZ, C.dgrey);
-math(ax, ctr + (ra - 60)*[cos(-0.72) sin(-0.72)], '$\pi_2$', P.LSZ, C.dgrey);
-
-% searching bees, tangent to the ring in the sense of their motion
-SA = 48;
-ab = [-pi/2, -2.20, -0.95, 0.55, 1.25, 2.00, 2.62];
-sv = [-1 0; 0 1; 1 0.3; 0 -1; 1 0; -1 0; 0 -1];
-for k = 1:numel(ab)
-    xy = ctr + R*[cos(ab(k)) sin(ab(k))];
-    glyph(ax, C, xy, tangent(ctr, xy, sv(k,:)), SA);
+ax = gca;  hold(ax, 'on')
+Fb = logspace(-1, log10(40), 300);
+G0 = psList{1}.G0;
+np = numel(psList);
+ex = nan(np, numel(Fb));  nv = nan(np, numel(Fb));
+for i = 1:np
+    ps = psList{i};
+    ex(i,:) = interp1(ps.F, ps.psi, Fb);
+    nv(i,:) = max(interp1(G.p, G.G, min(ps.p0./sqrt(Fb), max(G.p))), 1);
 end
 
-% donors, drawn last so they sit on the ring
-disk(ax, d1, 27, 0.78*C.dgrey, C.mgrey, 3);
-disk(ax, d2, 16, C.mgrey, C.ring, 2.5);
-math(ax, d1 + [66 52], '$\overline\kappa_1$', P.LSZ, C.dgrey);
-math(ax, d2 + [-58 52], '$\overline\kappa_2$', P.LSZ, C.dgrey);
-text(ax, d1(1) - 62, d1(2) - 128, 'cue', 'Interpreter','latex', 'FontSize', P.FSZ, ...
-     'Color', C.dkgrn, 'HorizontalAlignment','center', 'VerticalAlignment','middle');
+yline(ax, 1, '-', 'Color', [0.70 0.72 0.74], 'LineWidth', P.ALW);
+for i = 1:np
+    plot(ax, Fb, ex(i,:), P.p0sty{i}, 'Color', P.p0cols(i,:), 'LineWidth', P.LW);
+end
 
-set(ax.Children, 'Clipping', 'off');
-P.export(P, 'fig2d', outdir, h);
-close(h);
-out = struct('ctr',ctr,'R',R);
+set(ax,'XScale','log');
+xlabel('scenting population $\bar F$','Interpreter','latex','FontSize',P.LSZ);
+ylabel('recruitment gain','Interpreter','latex','FontSize',P.LSZ);
+xlim([min(Fb) max(Fb)*4.2]);  ylim([1 3]);
+P.axes(P);
+set(ax, 'Position', [0.17 0.15 0.78 0.73], 'YTick', 1:0.5:3, 'XTick', [0.1 1 10]);
+
+% Curve labels at the right edge, where the three curves are most separated.
+% No legend, since line style and hue both encode p0.
+for i = 1:np
+    P.label(P, ax, Fb(end)*1.12, ex(i,end), sprintf('$p_0=%.2f$', psList{i}.p0), ...
+            'FontSize', P.FSZ-2, 'Color', P.p0cols(i,:), ...
+            'HorizontalAlignment','left', 'VerticalAlignment','middle');
+end
+
+rpk = nan(1,np);  Fpk = nan(1,np);
+for i = 1:np
+    [rpk(i), j] = max(ex(i,:) ./ nv(i,:));  Fpk(i) = Fb(j);
+end
+
+out = struct('g1', cellfun(@(s) s.g1, psList), ...
+             'p0', cellfun(@(s) s.p0, psList), ...
+             'Fsub', cellfun(@(s) s.Fsub, psList), ...
+             'ratiopeak', rpk, 'ratiopeakF', Fpk, ...
+             'G0', G0, 'pstar', G.pstar);
+fprintf('single-scenter gains g1:');  fprintf(' %.3f', out.g1);  fprintf('\n');
+fprintf('substitution pinned at unity below Fbar =');
+fprintf(' %.2f', out.Fsub);  fprintf('  (p* = %.4f)\n', G.pstar);
+fprintf('peak ratio Psi~/G(p0/sqrt(Fbar)):');
+for i = 1:np, fprintf('  %.2f at Fbar = %.2f', rpk(i), Fpk(i)); end
+fprintf('\n');
+if any(out.g1 <= 1)
+    warning('figL2:g1NotAboveOne', ...
+        ['g1 <= 1 at p0 = %s; the no-threshold argument fails there, since ' ...
+         'it rests on Psi~''(0) = g1 - 1 > 0'], ...
+        mat2str(out.p0(out.g1 <= 1), 3));
+end
+if abs(out.g1(1) - 1.644) < 5e-3
+    warning('figL2:staleReliance', ...
+        ['g1 = %.3f at the reference p0, which is the pre-correction value. ' ...
+         'psiTable is averaging along the ridge again, i.e. crediting a ' ...
+         'searcher with the realized peak.  Expect 1.552.  Check the cache ' ...
+         'stamp reads v2-reliance-outside-average.'], out.g1(1));
+end
+% Inset, a scenting cluster at the donor. The solid tent is one realization
+% of the aggregate cue and the dashed outlines are others, so the peak offset
+% is drawn as a random quantity.
+inset_cluster(h, P);
+P.export(P, 'figL2', outdir, h);
 end
 
 % ------------------------------------------------------------------------
-function plume(ax, C, ctr, r0, ac, hw, ht)
-% Tent of angular half width HW and height HT standing on radius R0 at angle
-% AC, shaded dark green at its base under the apex and fading to white at the
-% flanks and the tip.
-na = 81;  ns = 12;
-a = ac + hw*linspace(-1, 1, na);
-tent = 1 - abs(a - ac)/hw;
-s = linspace(0, 1, ns);
-V = zeros(na*ns, 2);  T = zeros(na*ns, 1);
-for j = 1:ns
-    r = r0 + s(j)*ht*tent;
-    idx = (j-1)*na + (1:na);
-    V(idx,:) = [ctr(1) + r'.*cos(a'), ctr(2) + r'.*sin(a')];
-    T(idx) = 1 - 0.92*tent'.*(1 - 0.75*s(j));
-end
-F = zeros(2*(na-1)*(ns-1), 3);  m = 0;
-for j = 1:ns-1
-    for i = 1:na-1
-        p = (j-1)*na + i;  q = p + na;
-        m = m + 1;  F(m,:) = [p p+1 q+1];
-        m = m + 1;  F(m,:) = [p q+1 q];
-    end
-end
-col = (1 - T).*C.dkgrn + T.*[1 1 1];
-patch(ax, 'Faces', F, 'Vertices', V, 'FaceVertexCData', col, ...
-      'FaceColor','interp', 'EdgeColor','none');
-r = r0 + ht*tent;
-plot(ax, ctr(1) + r.*cos(a), ctr(2) + r.*sin(a), '-', 'Color', C.dkgrn, 'LineWidth', 1.6);
-end
-
-function ring(ax, C, ctr, R, lw)
-th = linspace(0, 2*pi, 361);
-plot(ax, ctr(1) + R*cos(th), ctr(2) + R*sin(th), '-', 'Color', C.ring, 'LineWidth', lw);
-end
-
-function splitArc(ax, C, ctr, r, a0, a1, lw, hl)
-% Arc of radius R from angle A0 to A1 with an arrowhead of length HL at A1.
-col = C.mgrey;
-L = abs(a1 - a0)*r;
-ae = a1 - sign(a1 - a0)*hl/r;                % shaft stops at the head base
-a = linspace(a0, ae + sign(a1 - a0)*0.3/r, 120);
-plot(ax, ctr(1) + r*cos(a), ctr(2) + r*sin(a), '-', 'Color', col, 'LineWidth', lw);
-tip  = ctr + r*[cos(a1) sin(a1)];
-base = ctr + r*[cos(ae) sin(ae)];
-d = (tip - base)/norm(tip - base);  n = [-d(2) d(1)];
-hw = 0.5*hl + lw;
-patch(ax, [tip(1) base(1)+hw/2*n(1) base(1)-hw/2*n(1)], ...
-          [tip(2) base(2)+hw/2*n(2) base(2)-hw/2*n(2)], col, 'EdgeColor','none');
-if L <= hl, warning('fig2d:shortArc', 'split arc shorter than its head'); end
-end
-
-function disk(ax, xy, rout, fc, ec, lw)
-th = linspace(0, 2*pi, 73);  r = rout - lw/2;
-patch(ax, xy(1) + r*cos(th), xy(2) + r*sin(th), fc, 'EdgeColor', ec, 'LineWidth', lw);
-end
-
-function glyph(ax, C, xy, hd, s)
-% Searching bee of body length S, body midpoint at XY, heading along HD.
-d = hd/norm(hd);
-o = xy + 0.07*s*d;
-draw_bee(ax, o(1), o(2), atan2(d(2), d(1)), s, C.blue, 'edge', s/32);
-end
-
-function t = tangent(ctr, xy, ref)
-% unit tangent to the circle about CTR through XY, on the side of REF
-r = xy - ctr;  t = [-r(2) r(1)]/norm(r);
-if dot(t, ref) < 0, t = -t; end
-end
-
-function t = math(ax, xy, str, fs, col)
-t = text(ax, xy(1), xy(2), str, 'Interpreter','latex', 'FontSize', fs, 'Color', col, ...
-         'HorizontalAlignment','center', 'VerticalAlignment','middle');
+function inset_cluster(h, P)
+%INSET_CLUSTER  Scenting cluster sketch, in the empty region under the p0 labels.
+K = inset_kit();
+ax = K.axes(h, P, [4.2 5.8 5.6 4.0]);
+y0 = 1.0;  xd = 3.0;
+for xg = [1.95 3.4], K.ghost(ax, xg, 1.4, y0, 2.3); end
+K.tent(ax, 2.55, 1.4, y0, 2.3, 0.30, 0.93);
+K.track(ax, 0.1, 5.5, y0);
+K.donor(ax, xd, y0, 0.25);
+B = [1.8 y0+0.3 -0.25; 2.3 y0-0.32 0.35; 3.75 y0+0.32 pi+0.3; 4.2 y0-0.28 pi-0.25];
+for k = 1:size(B,1), K.bee(ax, B(k,1), B(k,2), B(k,3), 0.8, 'scent'); end
 end
 
 % =========================================================================
-% Panel (b), fig2e. Averaged splitting probability against reversal rate.
+% Panel (b), figL3. Feeding-time landscape over abandonment and traffic.
 % =========================================================================
-function out = panel_b(prm, outdir, bgrid, kbars, nmc, seed)
-%PANEL_B  Averaged splitting probability pibar_1 against reversal rate, two
-%   donors of unequal absorptivity, no cues. Arc solution and Monte Carlo.
-%   Panel (b).
+function out = panel_b(ps, cfg, outdir, dgrid, rgrid, q)
+%PANEL_B  Feeding time relative to no lingering, over abandonment rate and
+%   traffic ratio. Diverging map centered on unity. Blue is faster than never
+%   lingering, red is slower. The solid curve is delta*(rho). The dashed
+%   contour is the break-even locus, above which lingering never pays.
 %
-%   The arc solution and the Monte Carlo are cached under a stamped key in
-%   OUTDIR.
+%   delta*(rho) is a trough, the minimum of the ratio at each rho. It is
+%   refined off the grid with refineDelta so the curve does not step.
+%
+%   rgrid is shared with panel (c) so both panels cover the same decades of rho.
+%
+%   rho_detach here is where any benefit disappears. Panel (c)'s rho*(q) is the
+%   one percent level. They are close at q = 0.5 but are different quantities,
+%   and out.detach_threshold records which is which.
+%
+%   Detachment is extrapolated from the paying side. The benefit 1 - Rmin goes
+%   continuously to zero, so the last paying grid point understates the
+%   boundary by up to one spacing. The first non-paying point has dstar = NaN
+%   and cannot serve as a node. Extrapolate from the last two resolved rho and
+%   clamp to the bracket. Quote the bracket with the number.
+%
+%   The delta -> infinity limit depends on rho. At delta = inf no bee scents
+%   and every service event is productive. A(0) = lam0*N = rho*mu, so for
+%   rho <= 1 the queue stays empty and Tinf = L_q/lam0 exactly. Above rho = 1
+%   the queue binds and Tinf approaches the service bound q*N/mu.
+%
+%   Tinf must equal log(1/(1-q))/lam0 for rho <= 1 and must not fall below
+%   max(log(1/(1-q))/lam0, q*N/mu) at any rho. Test Tinf itself, not the last
+%   column of dgrid, where some lingering remains and Tq sits below Tinf.
 
-if nargin < 2 || isempty(outdir), outdir = 'output'; end
-if nargin < 3 || isempty(bgrid),  bgrid = logspace(-3, 2, 26); end
-if nargin < 4 || isempty(kbars),  kbars = [0.06 0.015]; end
-if nargin < 5 || isempty(nmc),    nmc = 40000; end
-if nargin < 6 || isempty(seed),   seed = 3; end
+if nargin < 3, outdir = 'output'; end
+if nargin < 4, dgrid = logspace(-2.5, 1.0, 44); end
+if nargin < 5, rgrid = logspace(log10(0.15), log10(5.0), 34); end
+if nargin < 6, q = 0.5; end
 
 M = lingermodel();  P = linger_style();
-v = prm.v;  eta = tanh(kbars/(2*v));
-bal = eta(1)/sum(eta);  dif = 0.5;
-bmc = bgrid(round(linspace(1, numel(bgrid), 7)));
-
-R = [];
-if isempty(R)
-    cfile = fullfile(outdir, 'fig2e_cache.mat');
-    % The stamp tag is a fixed part of the cache identity.
-    key = M.stamp('fig6b', prm, bgrid, kbars, nmc, seed);
-    if isfile(cfile)
-        C = load(cfile);
-        if isfield(C, 'key') && strcmp(C.key, key), R = C.R; fprintf('fig2e: loaded stamped cache\n'); end
+R = zeros(numel(rgrid), numel(dgrid));
+Tinf = zeros(size(rgrid));  dstar = nan(size(rgrid));  Rmin = nan(size(rgrid));
+for i = 1:numel(rgrid)
+    c = cfg;  c.lam0 = rgrid(i)*cfg.mu/cfg.N;
+    f = @(d) M.Tq(d, ps, c, q);
+    Tinf(i) = f(1e4);
+    for j = 1:numel(dgrid)
+        R(i,j) = f(dgrid(j))/Tinf(i);
     end
-    if isempty(R)
-        R = compute(prm, bgrid, kbars, nmc, seed, bmc);
-        save(cfile, 'R', 'key');
+    [dopt, Topt] = M.refineDelta(f, dgrid, R(i,:)*Tinf(i));
+    if Topt < Tinf(i)*(1 - 1e-6)
+        dstar(i) = dopt;  Rmin(i) = Topt/Tinf(i);
     end
 end
 
-cfv = eta(1)*(pi*R.beta*eta(2) + v)./(2*pi*R.beta*eta(1)*eta(2) + v*eta(1) + v*eta(2));
-dev = (R.pi_mc - interp1(R.beta, R.pi1, R.beta_mc))./R.se_mc;
-[~, i1] = min(abs(R.beta - 1));
-fprintf('fig2e: pibar_1 = %.3f at beta0 = 1 (ballistic %.3f), solver vs closed form %.1e, MC within %.1f SE\n', ...
-        R.pi1(i1), bal, max(abs(R.pi1 - cfv)), max(abs(dev)));
+rdetach = detachRho(rgrid, dstar, Rmin);
 
-% ---- panel --------------------------------------------------------------
-h = P.figure(P);  ax = axes('Parent', h);  hold(ax, 'on');
-plot(ax, [min(bgrid) max(bgrid)], bal*[1 1], '--', 'Color', P.grey, 'LineWidth', P.ALW);
-plot(ax, [min(bgrid) max(bgrid)], dif*[1 1], ':',  'Color', P.grey, 'LineWidth', P.ALW);
-plot(ax, R.beta, R.pi1, '-', 'Color', P.greens(4,:), 'LineWidth', P.LW);
-errorbar(ax, R.beta_mc, R.pi_mc, 1.96*R.se_mc, 'o', 'Color', P.blues(3,:), ...
-         'MarkerFaceColor','w', 'LineWidth', P.ALW, 'MarkerSize', 12, ...
-         'CapSize', 10, 'LineStyle','none');
-set(ax, 'XScale', 'log');
-xlabel(ax, 'reversal rate $\beta$', 'Interpreter','latex', 'FontSize', P.LSZ);
-ylabel(ax, 'splitting probability $\bar\pi_1$', 'Interpreter','latex', 'FontSize', P.LSZ);
-xlim(ax, [min(bgrid) max(bgrid)]);  ylim(ax, [0.45, bal + 0.05]);
-set(ax, 'XTick', 10.^(-3:2));
-P.axes(P, ax);
-set(ax, 'Position', [0.19 0.17 0.74 0.72]);
-P.label(P, ax, 1.4e-3, bal + 0.008, 'ballistic, $\eta_1/(\eta_1+\eta_2)$', ...
-        'Color', P.grey, 'VerticalAlignment','bottom');
-P.label(P, ax, 1.4e-3, dif + 0.008, 'diffusive, $1/2$', ...
-        'Color', P.grey, 'VerticalAlignment','bottom');
-P.label(P, ax, 0.9, 0.745, 'arc solution', 'Color', P.greens(4,:), ...
-        'HorizontalAlignment','right');
-P.label(P, ax, 8, 0.66, 'simulation', 'Color', P.blues(3,:), ...
-        'HorizontalAlignment','right');
+% The drawn delta*(rho) is continued past the last grid row on a finer rho
+% bracket and a wider delta range, then clipped at the right edge of the map,
+% so it leaves the panel where the optimum passes delta = max(dgrid) instead
+% of stopping at the grid spacing. Printed quantities use the grid values.
+[dcurve, rcurve] = continueRidge(M, ps, cfg, q, dgrid, rgrid, dstar);
 
-P.export(P, 'fig2e', outdir, h);
-close(h);
+h = P.figure(P);
+ax = gca;
+% pcolor with interpolated shading, since imagesc cells are visible at print
+% size. Contours are drawn on the swept grid.
+hs = pcolor(ax, log10(dgrid), log10(rgrid), R);
+set(hs, 'EdgeColor','none');  shading(ax, 'interp');
+colormap(ax, P.divmap(256));
+m = max(abs(R(:) - 1));  clim(ax, [1-m, 1+m]);
+cb = P.cbar(P, 'feeding time ratio $T_q(\delta)/T_q(\infty)$');
+cb.Label.FontSize = P.LSZ-4;
+hold(ax, 'on')
+plot(ax, log10(dcurve), log10(rcurve), '-', 'Color','w','LineWidth', P.LW+1.5);
+plot(ax, log10(dcurve), log10(rcurve), '-', 'Color',P.greens(6,:),'LineWidth', P.LW);
+contour(ax, log10(dgrid), log10(rgrid), R, [1 1], 'k--','LineWidth',P.ALW);
 
-out = R;  out.ballistic = bal;  out.diffusive = dif;  out.closedform = cfv;
-out.dev = dev;  out.kbar = kbars;  out.eta = eta;
+xlabel('abandonment rate magnitude $\log_{10}\delta$','Interpreter','latex','FontSize',P.LSZ);
+ylabel('traffic magnitude $\log_{10}\rho$','Interpreter','latex','FontSize',P.LSZ);
+P.axes(P);
+set(ax, 'YTick', -0.8:0.2:0.6, 'Position', [0.17 0.15 0.62 0.73]);  cb.Position = [0.81 0.15 0.035 0.73];
+P.label(P, ax, 0.92, 0.17, 'break even', 'FontSize', P.FSZ+4, ...
+        'HorizontalAlignment','right', 'VerticalAlignment','bottom');
+P.label(P, ax, -0.30, -0.21, 'optimal $\delta^\ast$', 'FontSize', P.FSZ+4, ...
+        'Color', P.greens(6,:), 'HorizontalAlignment','left');
+
+Lq    = log(1/(1-q));
+Tserv = q*cfg.N/cfg.mu;
+
+out = struct('dgrid',dgrid,'rgrid',rgrid,'R',R,'dstar',dstar,'Rmin',Rmin, ...
+             'Tinf',Tinf,'q',q,'rho_detach',rdetach,'detach_threshold',0, ...
+             'Tserv',Tserv,'best_speedup',100*(1-min(Rmin)));
+k = find(~isnan(dstar), 1, 'last');
+out.detach_bracket = [rgrid(k), rgrid(min(k+1,numel(rgrid)))];
+fprintf(['best speedup %.1f%%, detaches above rho = %.2f ' ...
+         '(any benefit, bracketed by [%.2f, %.2f]; figL4 uses 1%%)\n'], ...
+        out.best_speedup, out.rho_detach, out.detach_bracket(1), ...
+        out.detach_bracket(2));
+
+% ---- the delta -> infinity limit, tested where each statement holds ------
+lam   = rgrid*cfg.mu/cfg.N;
+Tsrch = Lq./lam;                        % search limited, exact for rho <= 1
+sub   = rgrid <= 1;
+if any(sub), chk = max(abs(Tinf(sub).*lam(sub)/Lq - 1)); else, chk = 0; end
+if chk > 1e-3
+    warning('figL3:TinfNotExact', ...
+        ['Tq(inf) departs from log(1/(1-q))/lam0 by %.1e at rho <= 1, where ' ...
+         'the queue never binds and the limit is exact'], chk);
+end
+
+% Both are lower bounds at every rho. Queueing only slows a run, and no bee
+% is fed faster than mu. A violation is an error in the reduced system.
+gap = Tinf - max(Tsrch, Tserv);
+if min(gap) < -1e-3*Tserv
+    [~, kb] = min(gap);
+    warning('figL3:TinfBelowBound', ...
+        ['Tq(inf) falls %.2f below max(L_q/lam0, q*N/mu) at rho = %.2f; the ' ...
+         'reduced system is feeding faster than either limit allows'], ...
+        -gap(kb), rgrid(kb));
+end
+out.Tinf_dev_sub = chk;
+out.Tinf_end     = Tinf(end);
+fprintf(['Tq(inf): exact to %.1e for rho <= 1;  at rho = %.2f it is %.1f ' ...
+         'against the service bound %.1f\n'], chk, rgrid(end), Tinf(end), Tserv);
+
+P.export(P, 'figL3', outdir, h);
 end
 
 % ------------------------------------------------------------------------
-function R = compute(prm, bgrid, kbars, nmc, seed, bmc)
-A = atwo();  traps = [-pi/2, pi/2];
-th = 1 - exp(-kbars/prm.v);
-pis = zeros(size(bgrid));
-for i = 1:numel(bgrid)
-    p = A.split(traps, th, [], prm.sig, bgrid(i), 0);
-    pis(i) = p(1);
+function [dc, rc] = continueRidge(M, ps, cfg, q, dgrid, rgrid, dstar)
+%CONTINUERIDGE  delta*(rho) on the grid rows, extended between the last row
+%   with an optimum and the next one, and clipped at delta = max(dgrid).
+k  = find(~isnan(dstar), 1, 'last');
+dc = dstar(1:k);  rc = rgrid(1:k);
+if isempty(k) || k == numel(rgrid), return; end
+rf   = logspace(log10(rgrid(k)), log10(rgrid(k+1)), 14);  rf = rf(2:end-1);
+dext = logspace(log10(dgrid(1)), 3, 60);
+for i = 1:numel(rf)
+    c = cfg;  c.lam0 = rf(i)*cfg.mu/cfg.N;
+    f = @(d) M.Tq(d, ps, c, q);
+    Ti = f(1e4);
+    [dopt, Topt] = M.refineDelta(f, dext, arrayfun(f, dext));
+    if Topt >= Ti*(1 - 1e-6), break, end
+    dc(end+1) = dopt;  rc(end+1) = rf(i); %#ok<AGROW>
 end
-pmc = zeros(size(bmc));  smc = zeros(size(bmc));
-for i = 1:numel(bmc)
-    who = A.mc(nmc, traps, th, [], prm.sig, bmc(i), 0, prm.sm, prm.v, seed+i);
-    p1 = mean(who == 1);
-    pmc(i) = p1;  smc(i) = sqrt(p1*(1-p1)/numel(who));
+j = find(dc > dgrid(end), 1);
+if ~isempty(j) && j > 1
+    u = interp1(log10(dc([j-1 j])), log10(rc([j-1 j])), log10(dgrid(end)));
+    dc = [dc(1:j-1) dgrid(end)];  rc = [rc(1:j-1) 10^u];
 end
-R = struct('beta',bgrid,'pi1',pis,'beta_mc',bmc,'pi_mc',pmc,'se_mc',smc);
+end
+
+function r = detachRho(rgrid, dstar, Rmin)
+%DETACHRHO  Where the attainable benefit reaches zero, extrapolated from the
+%   last two resolved rho and clamped to the grid bracket. Returns NaN if the
+%   boundary is not on the grid.
+idx = find(~isnan(dstar));
+if numel(idx) < 2 || idx(end) == numel(rgrid), r = NaN; return; end
+k = idx(end);  km = idx(end-1);
+ben = 1 - Rmin([km k]);                 % benefit, positive and decreasing
+u   = log10(rgrid([km k]));
+if ben(1) > ben(2) && ben(2) > 0
+    r = 10^interp1(ben, u, 0, 'linear', 'extrap');
+else
+    r = rgrid(k);                       % not resolvable, fall back to the grid
+end
+r = min(max(r, rgrid(k)), rgrid(k+1));  % the grid cannot support more than this
 end
 
 % =========================================================================
-% Panel (c), fig2f. One advertised donor.
+% Panel (c), figL4. Attainable speedup and the lingering boundary.
 % =========================================================================
-function out = panel_c(prm, outdir, ugrid, umc, nmc, seed)
-%PANEL_C  One advertised donor. Arrival rates at the advertised donor and
-%   its rival, relative to their no-cue values, against reliance
-%   u = gamma/(s_m sigma), with a cue at donor 1 only at zero offset. The
-%   conditional first-passage times to either donor sit on the right axis.
-%   Panel (c).
+function out = panel_c(G, W, cfg, outdir, rgrid, qgrid, p0, dgrid)
+%PANEL_C  Phase diagram of the attainable speedup over traffic ratio and
+%   fed fraction. The solid contour is the one percent level rho*(q), the
+%   practical boundary of the lingering regime. Feeding a larger share of the
+%   colony keeps lingering worthwhile at higher load, because the cue comes
+%   from the fed population and its value accrues over the run.
 %
-%   Equal donors at -pi/2 (advertised) and +pi/2 at the representative parameters.
-%   Lambda_j = pi_j/Tbar as in atwo. The Monte Carlo rate is the fraction
-%   absorbed at j over the mean absorption time, with a delta-method error.
+%   Takes W because psiTable selects one reliance before the offset is drawn
+%   and needs the gain surface as well as the ridge table.
+%
+%   Cue quality is not an axis. The existence criterion
+%   (g1-1)*q*N*(mu-A_q) > A_q has slack of about two orders of magnitude at
+%   these parameters. Fig. 4(c) tests this by sweeping q at three values of p_0.
+%   The speedup at p_0 = 1.52, q = 0.1 is about 1.1 percent, close to the one
+%   percent contour. If it falls below one percent, rho*(q) depends on p_0.
+%
+%   The speedup at each cell uses the minimum of Tq over delta, so a coarse grid
+%   biases it low and moves rho*(q) left. The grid is scanned and then refined
+%   with refineDelta.
+%
+%   P.CLIM_SPEEDUP is a floor for the color limit. The upper limit is the data
+%   maximum rounded up to a multiple of five.
+%
+%   The sweep is cached under outdir and reused when the stamp matches. The
+%   stamp carries a version tag so a convention change without a parameter
+%   change forces a rebuild.
 
-if nargin < 2 || isempty(outdir), outdir = 'output'; end
-if nargin < 3 || isempty(ugrid),  ugrid = linspace(0, 1, 41); end
-if nargin < 4 || isempty(umc),    umc = [0 0.25 0.5 0.75 1]; end
-if nargin < 5 || isempty(nmc),    nmc = 40000; end
-if nargin < 6 || isempty(seed),   seed = 61; end
+if nargin < 4 || isempty(outdir), outdir = 'output'; end
+if nargin < 5 || isempty(rgrid), rgrid = logspace(log10(0.15), log10(5.0), 61); end
+if nargin < 6 || isempty(qgrid), qgrid = linspace(0.10, 0.95, 35); end
+if nargin < 7 || isempty(p0),    p0 = cfg.p0; end
+if nargin < 8 || isempty(dgrid), dgrid = logspace(-2.5, 1.0, 25); end
+VER = 'v2-reliance-outside-average';
 
-A = atwo();  M = lingermodel();  P = linger_style();
-traps = [-pi/2, pi/2];  th = [1 1]*prm.theta;  gs = prm.sm*prm.sig;
-gam = min(ugrid*gs, prm.gmax);  gmc = min(umc*gs, prm.gmax);
+M = lingermodel();  P = linger_style();
+ps  = M.psiTable(G, p0, W);
+key = M.stamp(VER, cfg, G.prm, rgrid, qgrid, dgrid, p0);
+cachefile = fullfile(outdir, 'figL4_cache.mat');
 
-cfile = fullfile(outdir, 'fig2f_cache.mat');
-% The stamp tag is a fixed part of the cache identity.
-key = M.stamp('fig6c', prm, ugrid, umc, nmc, seed);
-R = [];
-if isfile(cfile)
-    C = load(cfile);
-    if isfield(C, 'key') && strcmp(C.key, key), R = C.R; fprintf('fig2f: loaded stamped cache\n'); end
-end
-if isempty(R)
-    [pi0, T0, Tb0, L0] = A.split(traps, th, [], prm.sig, prm.beta0, 0, prm.sm, prm.v);
-    nu = numel(ugrid);
-    Pi = zeros(nu, 2);  Tc = zeros(nu, 2);  Tb = zeros(nu, 1);  L = zeros(nu, 2);
-    for i = 1:nu
-        [Pi(i,:), Tc(i,:), Tb(i), L(i,:)] = A.split(traps, th, traps(1), prm.sig, ...
-                                                    prm.beta0, gam(i), prm.sm, prm.v);
+Sp = [];
+if isfile(cachefile)
+    C = load(cachefile);
+    if isfield(C,'key') && strcmp(C.key, key)
+        Sp = C.Sp;  Ds = C.Ds;
+        fprintf('figL4: reusing cached sweep\n');
+    else
+        fprintf('figL4: cache stamp mismatch, recomputing\n');
     end
-    nm = numel(umc);
-    Lmc = zeros(nm, 2);  Lse = zeros(nm, 2);  Tmc = zeros(nm, 2);  Tse = zeros(nm, 2);
-    for i = 1:nm
-        [who, tabs] = A.mc(nmc, traps, th, traps(1), prm.sig, prm.beta0, gmc(i), ...
-                           prm.sm, prm.v, seed + i);
-        ok = who > 0;  n = nnz(ok);  t = tabs(ok);  w = who(ok);
-        b = mean(t);
-        for j = 1:2
-            I = double(w == j);  a = mean(I);
-            cv = cov(I, t);
-            vv = (cv(1,1)/b^2 + a^2*cv(2,2)/b^4 - 2*a*cv(1,2)/b^3)/n;
-            Lmc(i,j) = a/b;  Lse(i,j) = sqrt(vv);
-            Tmc(i,j) = mean(t(w == j));  Tse(i,j) = std(t(w == j))/sqrt(nnz(w == j));
+end
+if isempty(Sp)
+    Sp = zeros(numel(qgrid), numel(rgrid));
+    Ds = nan(size(Sp));
+    for b = 1:numel(rgrid)
+        c = cfg;  c.lam0 = rgrid(b)*cfg.mu/cfg.N;
+        for a = 1:numel(qgrid)
+            [dopt, Topt, Tinf] = M.optDelta(ps, c, qgrid(a), dgrid);
+            Sp(a,b) = 100*max(0, 1 - Topt/Tinf);
+            if Sp(a,b) > 1, Ds(a,b) = dopt; end
         end
-        if n < nmc, warning('fig2f:capped', '%d walkers unabsorbed at u = %g', nmc - n, umc(i)); end
+        fprintf('  rho = %.2f done\n', rgrid(b));
     end
-    R = struct('u',ugrid,'pi',Pi,'Tc',Tc,'Tbar',Tb,'Lam',L, ...
-               'pi0',pi0,'T0',T0,'Tbar0',Tb0,'Lam0',L0, ...
-               'u_mc',umc,'Lam_mc',Lmc,'Lam_se',Lse,'T_mc',Tmc,'T_se',Tse,'n',nmc);
-    save(cfile, 'R', 'key');
+    save(cachefile, 'Sp', 'Ds', 'key');
 end
 
-g1 = R.Lam(:,1)/R.Lam0(1);  g2 = R.Lam(:,2)/R.Lam0(2);
-m1 = R.Lam_mc(:,1)/R.Lam0(1);  m2 = R.Lam_mc(:,2)/R.Lam0(2);
-e1 = 1.96*R.Lam_se(:,1)/R.Lam0(1);  e2 = 1.96*R.Lam_se(:,2)/R.Lam0(2);
-dev = [(m1 - interp1(R.u, g1, R.u_mc(:)))./(e1/1.96), ...
-       (m2 - interp1(R.u, g2, R.u_mc(:)))./(e2/1.96)];
-fprintf('fig2f: no cue, pi = (%.3f, %.3f), T_j = (%.1f, %.1f), Lambda_j = %.5f vs lam0 = %.5f\n', ...
-        R.pi0, R.T0, R.Lam0(1), prm.lam0);
-fprintf(['fig2f: full reliance, Lambda_1 x %.3f, Lambda_2 x %.3f (%.1f%% loss), total x %.3f\n' ...
-         '       pi_2 %.3f -> %.3f, T_2 %.1f -> %.1f, T_1 %.1f -> %.1f, Tbar %.1f -> %.1f\n'], ...
-        g1(end), g2(end), 100*(1 - g2(end)), sum(R.Lam(end,:))/sum(R.Lam0), ...
-        R.pi0(2), R.pi(end,2), R.T0(2), R.Tc(end,2), R.T0(1), R.Tc(end,1), R.Tbar0, R.Tbar(end));
-fprintf('fig2f: Monte Carlo (%d walkers) at full reliance, Lambda ratios %.3f +- %.3f, %.3f +- %.3f; T_2 = %.1f +- %.1f\n', ...
-        R.n, m1(end), e1(end), m2(end), e2(end), R.T_mc(end,2), 1.96*R.T_se(end,2));
-fprintf('fig2f: Monte Carlo within %.1f SE of the arc solution\n', max(abs(dev(:))));
-
-% ---- panel --------------------------------------------------------------
-cL = P.greens(5,:);  cR = P.blues(3,:);
 h = P.figure(P);
-pos = [0.17 0.17 0.66 0.72];
-% Two overlaid axes rather than yyaxis, which the assembly cannot copy.
-ax2 = axes('Parent', h, 'Position', pos);  hold(ax2, 'on');
-ax  = axes('Parent', h, 'Position', pos);  hold(ax, 'on');
-plot(ax, [0 1], [1 1], ':', 'Color', P.grey, 'LineWidth', P.ALW);
-plot(ax, R.u, g1, '-', 'Color', cL, 'LineWidth', P.LW);
-plot(ax, R.u, g2, '--', 'Color', cL, 'LineWidth', P.LW);
-errorbar(ax, R.u_mc, m1, e1, 'o', 'Color', cL, 'MarkerFaceColor','w', ...
-         'LineWidth', P.ALW, 'MarkerSize', 12, 'CapSize', 10, 'LineStyle','none');
-errorbar(ax, R.u_mc, m2, e2, 'o', 'Color', cL, 'MarkerFaceColor','w', ...
-         'LineWidth', P.ALW, 'MarkerSize', 12, 'CapSize', 10, 'LineStyle','none');
-xlim(ax, [0 1]);  ylim(ax, [0 4]);
-xlabel(ax, 'reliance $\gamma/(s_m\sigma)$', 'Interpreter','latex', 'FontSize', P.LSZ);
-ylabel(ax, 'arrival rate $\Lambda_j/\Lambda_j^{0}$', 'Interpreter','latex', 'FontSize', P.LSZ);
-P.axes(P, ax);
-set(ax, 'Color', 'none', 'YColor', cL, 'Position', pos);
-P.label(P, ax, 0.96, 3.62, '$\Lambda_1$, advertised', 'Color', cL, ...
-        'HorizontalAlignment','right', 'VerticalAlignment','bottom');
-P.label(P, ax, 0.55, 0.62, '$\Lambda_2$, rival', 'Color', cL, ...
-        'HorizontalAlignment','center');
+ax = gca;
+% pcolor with interpolated shading, since imagesc cells are visible at print
+% size. Contours are computed on the swept grid.
+hs = pcolor(ax, log10(rgrid), qgrid, Sp);
+set(hs, 'EdgeColor', 'none');  shading(ax, 'interp');
+colormap(ax, flipud(P.plasma(256)));
+cl = [0, max(P.CLIM_SPEEDUP(2), 5*ceil(max(Sp(:))/5))];
+clim(ax, cl);
+cb = P.cbar(P, 'speedup (\%)');
+cb.Label.FontSize = P.LSZ-4;
+hold(ax, 'on')
+[C1, h1] = contour(ax, log10(rgrid), qgrid, Sp, [1 1],  'k-','LineWidth',P.LW-1);
+[Cc, hc] = contour(ax, log10(rgrid), qgrid, Sp, [10 25 40], 'k:','LineWidth',P.ALW);
+% Large LabelSpacing gives one label per contour level.
+clabel(Cc, hc, 'FontSize', P.FSZ-6, 'Interpreter','latex', 'LabelSpacing', 1e4);
+clabel(C1, h1, 'FontSize', P.FSZ-6, 'Interpreter','latex', 'LabelSpacing', 1e4);
 
-plot(ax2, R.u, R.Tc(:,2), '-', 'Color', cR, 'LineWidth', P.LW);
-plot(ax2, R.u, R.Tc(:,1), ':', 'Color', cR, 'LineWidth', P.LW);
-xlim(ax2, [0 1]);  ylim(ax2, [0 120]);
-ylabel(ax2, 'conditional time $T_j$', 'Interpreter','latex', 'FontSize', P.LSZ);
-P.axes(P, ax2);
-set(ax2, 'YAxisLocation', 'right', 'XColor', 'none', 'YColor', cR, 'Position', pos);
-P.label(P, ax2, 0.03, 112, '$T_1\simeq T_2$', 'Color', cR, ...
-        'HorizontalAlignment','left', 'VerticalAlignment','middle');
+% Region labels. Light text on the dark upper left, dark text on the yellow right.
+xl = xlim(ax);  yl = ylim(ax);
+text(ax, xl(1)+0.04*diff(xl), yl(1)+0.93*diff(yl), {'lingering','speeds feeding'}, ...
+     'Interpreter','latex', 'FontSize', P.FSZ, 'Color', [1 1 1], ...
+     'HorizontalAlignment','left', 'VerticalAlignment','top');
+text(ax, xl(1)+0.90*diff(xl), yl(1)+0.12*diff(yl), {'no net','benefit'}, ...
+     'Interpreter','latex', 'FontSize', P.FSZ, 'Color', [0.1 0.1 0.1], ...
+     'HorizontalAlignment','right', 'VerticalAlignment','bottom');
+xlabel('traffic magnitude $\log_{10}\rho$','Interpreter','latex','FontSize',P.LSZ);
+ylabel('fed fraction $q$','Interpreter','latex','FontSize',P.LSZ);
+P.axes(P);
+set(ax, 'Position', [0.17 0.15 0.62 0.73]);  cb.Position = [0.81 0.15 0.035 0.73];
 
-P.export(P, 'fig2f', outdir, h);
-close(h);
-
-out = R;  out.gain1 = g1;  out.gain2 = g2;  out.mcdev = dev;
+rstar = nan(size(qgrid));
+for a = 1:numel(qgrid)
+    k = find(Sp(a,:) > 1, 1, 'last');
+    if isempty(k)
+        rstar(a) = -Inf;                       % never pays anywhere on the grid
+    elseif k == numel(rgrid)
+        rstar(a) = Inf;                        % boundary lies past the grid top
+    else                                       % interpolate the crossing in
+        u = log10(rgrid(k:k+1));               % log rho rather than snapping
+        rstar(a) = 10^interp1(Sp(a,k:k+1), u, 1);
+    end
+end
+out = struct('rgrid',rgrid,'qgrid',qgrid,'speedup',Sp,'dstar',Ds, ...
+             'rstar',rstar,'p0',p0,'g1',ps.g1,'clim',cl);
+if any(~isfinite(rstar))
+    fprintf(['WARNING: rho*(q) not bracketed at %d of %d values of q; ' ...
+             'widen rgrid\n'], sum(~isfinite(rstar)), numel(qgrid));
+end
+fprintf('rho*(q) runs %.2f at q=%.2f to %.2f at q=%.2f;  max speedup %.1f%% (clim %.0f)\n', ...
+        rstar(1), qgrid(1), rstar(end), qgrid(end), max(Sp(:)), cl(2));
+P.export(P, 'figL4', outdir, h);
 end

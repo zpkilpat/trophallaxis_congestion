@@ -2,7 +2,7 @@ function A = twoasym()
 %TWOASYM  Simple asymptotics for the two-donor feeding time.
 %
 %   Two closed-form results, derived rather than fitted, compared against the
-%   full individual-based model in figure7.
+%   full individual-based model in figure6.
 %
 %   1. No-lingering limit. At delta = Inf no bee scents, the gain is one, and
 %      every service event is productive. The colony is a pure

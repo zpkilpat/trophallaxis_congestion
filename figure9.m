@@ -1,32 +1,23 @@
 function out = figure9(varargin)
-%FIGURE6 Reproduce the three panels of Figure 9 (the averaged recruitment gain)
+%FIGURE7 Reproduce the three panels of Figure 9 (limits and robustness)
 %   and assemble the lettered figure.
 %
 % Usage
 %   figure9
-%   figure9('fast',true)                  % coarse grids, wiring check
+%   figure9('fast',true)                  % coarse grids, few realizations
 %   figure9('outdir','output/figure9')
 %
 % Panel map
-%   (a) fig6b  first-scenter value g_1 against p_0 with its two-sided bound
-%   (b) fig6c  gain elasticity with its small- and large-Fbar asymptotes
-%   (c) fig6d  variance ratio of the aggregate plume peak against scenter count
-%   Panel files keep their stems. The averaged-gain surface that was a fourth
-%   panel duplicates the slices drawn in Figure 4(a) of the article and is retired.
+%   (a) fig7a  T_q(delta)/T_q(inf) with the large-delta expansion and the
+%              delta = 0 values, q = 0.25, 0.5, 0.9
+%   (b) fig7b  reduction error against delta scaled by the spectral gap
+%   (c) fig7c  half-colony feeding time under four service laws
 %
-% The gain surface is extended past the cue support to p = 3, so the Gaussian
-% average at large p_0 samples the flat far field before offsets are clamped
-% to max(W.p). The representative-parameter tables on [0, 1.2] come
-% from the representative-parameter cache in outdir. The extension and the
-% kbar = 0.8 surface are cached here behind a stamp.
-%
-% Every a_k is the Gaussian smoothing of W at spread p_0/sqrt(k), on the
-% quadrature grid psiTable uses. The averaged gain and its derivative come from
-% mixGain, which takes the derivative by the envelope theorem.
-%
-% Panel (d) draws on its own peak ensemble, cached in outdir under a stamped
-% key. A fast run writes its panels and caches to outdir/fast so a production
-% cache is never replaced. The lettered figure is written to output/figs/fig9 (Fig. 9 of the article).
+% Caches. The single-donor gain tables and the service-law and reduction-error
+% ensembles are cached in outdir under stamped keys. The
+% two-donor table is read from output/figure3/figure3_twogain_cache.mat and
+% the two-donor ensemble from output/figure3/figT5_abm.mat. Neither is
+% written. A fast run writes its own caches with a _fast suffix.
 
 addpath(genpath(fullfile(fileparts(mfilename('fullpath')), 'src')));
 
@@ -38,614 +29,548 @@ parse(ip,varargin{:});
 fast   = logical(ip.Results.fast);
 OUTDIR = ip.Results.outdir;
 FIGDIR = ip.Results.figdir;
-if fast, OUTDIR = fullfile(OUTDIR, 'fast');  FIGDIR = OUTDIR; end
 if ~isfolder(OUTDIR), mkdir(OUTDIR); end
 if ~isfolder(FIGDIR), mkdir(FIGDIR); end
 close all
 
-VER    = 'v7-averaged-gain';
-P0LIST = [0.75 1.13 1.52];
-KBARS  = [0.0314 0.8];
+VER  = 'vS1-si-panels';            % cache version tag
+F6   = fullfile('output','figure5');
+F7   = fullfile('output','figure6');
+if fast, sfx = '_fast'; else, sfx = ''; end
 
 A = afpt();
 M = lingermodel();
 P = linger_style();
 prm = A.mkprm('kbar',0.0314,'sig',0.8,'beta0',1,'sm',1,'v',1);
 cfg = M.mkcfg('N',120,'mu',1,'lam0',prm.lam0,'p0',0.75);
-fprintf('figure9: lambda0 = %.5f, rho = %.3f, gmax = %.4f\n', ...
-        prm.lam0, prm.lam0*cfg.N/cfg.mu, prm.gmax);
+fprintf('figure9: lambda0 = %.5f, rho = %.3f, q0 = %.5f\n', ...
+        prm.lam0, prm.lam0*cfg.N/cfg.mu, prm.theta);
 
-% Grids are part of both cache keys, so fix them before stamping.
+% ---- single-donor tables ------------------------------------------------
 if fast
-    pbase = linspace(0,1.2,31);  pext = 1.4:0.2:3.0;  ggrid = linspace(0,prm.gmax,25);
-    Fb  = logspace(-1, log10(50), 60);
-    p0B = logspace(log10(0.3), log10(5), 16);
+    pgrid = linspace(0,1.2,31);   ggrid = linspace(0,prm.gmax,25);
 else
-    pbase = linspace(0,1.2,61);  pext = 1.25:0.05:3.0; ggrid = linspace(0,prm.gmax,51);
-    Fb  = logspace(-1, log10(50), 160);
-    p0B = logspace(log10(0.3), log10(5), 48);
+    pgrid = linspace(0,1.2,61);   ggrid = linspace(0,prm.gmax,51);
 end
-pgrid = [pbase pext];
-
-% ---- representative-parameter tables on [0, 1.2] ---------------------------------
-opfile = fullfile(OUTDIR,'opgain_cache.mat');
-keyS = M.stamp('vS1-si-panels', prm, cfg, pbase, ggrid);
-G = [];  Wb = [];
-if isfile(opfile)
-    S = load(opfile);
-    if isfield(S,'key') && strcmp(S.key,keyS)
-        G = S.G;  Wb = S.W;
-        fprintf('figure9: loaded representative-parameter tables from cache\n');
-    end
-end
-if isempty(G)
-    fprintf('figure9: building representative-parameter tables on %d x %d\n', numel(pbase), numel(ggrid));
-    G  = M.gainTable(prm, pbase);
-    Wb = M.gainSurface(prm, pbase, ggrid);
-end
-
-% ---- extended surfaces, both absorptivities -----------------------------
-cachefile = fullfile(OUTDIR,'figure9_gain_cache.mat');
-key = M.stamp(VER, prm, cfg, pbase, pext, ggrid, KBARS);
-T = [];
+cachefile = fullfile(OUTDIR, ['opgain_cache' sfx '.mat']);
+key = M.stamp(VER, prm, cfg, pgrid, ggrid);
+G = [];
 if isfile(cachefile)
     S = load(cachefile);
     if isfield(S,'key') && strcmp(S.key,key)
-        T = S.T;
-        fprintf('figure9: loaded stamped surface cache (%d x %d)\n', numel(pgrid), numel(ggrid));
+        G = S.G;  W = S.W;  ps = S.ps;
+        fprintf('figure9: loaded stamped gain cache\n');
+    end
+end
+if isempty(G)
+    G  = M.gainTable(prm,pgrid);
+    W  = M.gainSurface(prm,pgrid,ggrid);
+    ps = M.psiTable(G,cfg.p0,W);
+    save(cachefile,'G','W','ps','key');
+end
+fprintf('figure9 checks: p*/sigma = %.3f, G(0) = %.3f, g1 = %.3f\n', ...
+        G.pstar/prm.sig, G.Graw(1), ps.g1);
+
+% ---- two-donor table, production grids, read only ----------------------
+prm2 = struct('kbar',0.0314,'sig',0.8,'beta0',1,'sm',1,'v',1,'p0',0.75);
+prm2.gmax = prm2.sm*prm2.sig - 1e-6;
+PGRID = linspace(-prm2.sig,prm2.sig,25);  KMAX = 25;  GGRID = linspace(0,prm2.gmax,13);
+want = twogain_key(prm2,PGRID,KMAX,GGRID);
+G2 = [];
+for f = {fullfile(F6,'figure5_twogain_cache.mat'), fullfile(OUTDIR,'figure9_twogain_cache.mat')}
+    if isfile(f{1})
+        C = load(f{1},'G2');
+        if isfield(C,'G2') && isfield(C.G2,'key') && strcmp(C.G2.key,want)
+            G2 = C.G2;
+            fprintf('figure9: two-donor table read from %s\n', f{1});
+            break
+        end
+    end
+end
+if isempty(G2)
+    G2 = twogain(prm2,PGRID,KMAX,GGRID);
+    save(fullfile(OUTDIR,'figure9_twogain_cache.mat'),'G2');
+end
+
+% ---- panels -------------------------------------------------------------
+two = struct('r',4,'nrep',200,'deltas',[0.02 0.05 0.1 0.2 0.5 1 2 5], ...
+             'cachefile',fullfile(F7,'figT5_abm.mat'), ...
+             'fallback',fullfile(OUTDIR,'fig7b_abm2.mat'));
+if fast
+    Ra = panel_a(M,P,ps,cfg,OUTDIR,logspace(-3,2,20));
+    Rb = panel_b(M,P,G,ps,cfg,G2,OUTDIR,[0.05 0.2 1 5],12, ...
+                    fullfile(OUTDIR,'fig7b_abm_fast.mat'),two);
+    Rc = panel_c(M,P,G,ps,cfg,OUTDIR,logspace(log10(0.05),log10(3),5),12, ...
+                    fullfile(OUTDIR,'fig7c_abm_fast.mat'));
+else
+    Ra = panel_a(M,P,ps,cfg,OUTDIR);
+    Rb = panel_b(M,P,G,ps,cfg,G2,OUTDIR,[],[],fullfile(OUTDIR,'fig7b_abm.mat'),two);
+    Rc = panel_c(M,P,G,ps,cfg,OUTDIR,[],[],fullfile(OUTDIR,'fig7c_abm.mat'));
+end
+
+% ---- checks quoted in the text, printout only ----------------------------
+Klim = check_linger_limit(M, cfg);
+Ksym = check_symmetry(M, ps, G2);
+
+out = struct('prm',prm,'cfg',cfg,'g1',ps.g1,'A',Ra,'B',Rb,'C',Rc, ...
+             'limit',Klim,'symmetry',Ksym);
+save(fullfile(OUTDIR,['figure9_results' sfx '.mat']),'-struct','out');
+
+% ---- assembly -----------------------------------------------------------
+names  = {'fig7a','fig7b','fig7c'};
+panels = cellfun(@(n) fullfile(OUTDIR,[n '.fig']), names, 'uni', 0);
+tiles  = [0 0 22 19; 22 0 22 19; 44 0 22 19];
+assemble_figure(fullfile(FIGDIR,'fig9'), panels, tiles, [66 19], ...
+                'letterxy', [0.2 -0.2]);
+fprintf('figure9 complete. Panels in %s, assembled figure %s\n', ...
+        OUTDIR, fullfile(FIGDIR,'fig9.pdf'));
+end
+
+% =========================================================================
+% Panel (a), fig7a. The two abandonment limits.
+% =========================================================================
+function out = panel_a(M, P, ps, cfg, outdir, dgrid, qlist)
+%PANEL_A  The two abandonment limits and the interior optimum. Panel (a).
+%
+%   T_q(delta)/T_q(inf) from the reduced dynamics at three fed fractions, with
+%   the large-delta expansion (main Eq. large_delta)
+%
+%       T_q = L_q/lam0 + (1/delta)*[A_q/(mu - A_q) - (g1-1)*q*N],
+%
+%   dashed at large delta, and two delta = 0 values at the left edge. The
+%   filled marker integrates the reduced dynamics at delta = 0. The open
+%   marker is the quasi-stationary integral of appendix Eq. T0,
+%
+%       T_q(0) = int_0^{qN} dF / A(F),
+%       A = [(mu + Gam N) - sqrt((mu + Gam N)^2 - 4 Gam mu (N - F))]/2,
+%
+%   with Gam = lam0*Psi~(F). The two differ because the aggregation does not
+%   relax quickly at delta = 0, which the printout quantifies.
+
+if nargin < 6 || isempty(dgrid), dgrid = logspace(-3, 2, 60); end
+if nargin < 7 || isempty(qlist), qlist = [0.25 0.5 0.9]; end
+
+N = cfg.N;  mu = cfg.mu;  lam0 = cfg.lam0;  g1 = ps.g1;
+nq = numel(qlist);  nd = numel(dgrid);
+R = zeros(nq, nd);  Rexp = zeros(nq, nd);
+T0ode = zeros(1,nq);  T0int = zeros(1,nq);  Tinf = zeros(1,nq);
+slope = zeros(1,nq);  dopt = zeros(1,nq);  Ropt = zeros(1,nq);
+
+fprintf('fig7a: g1 = %.4f, lam0 = %.5f, rho = %.3f\n', g1, lam0, lam0*N/mu);
+fprintf(['fig7a: first chord of the Psi table, (Psi(F_2)-1)/F_2 = %.4f at F_2 = %.3g, ' ...
+         'against g1 - 1 = %.4f\n'], (ps.psi(2) - 1)/ps.F(2), ps.F(2), g1 - 1);
+for i = 1:nq
+    q = qlist(i);
+    f = @(d) M.Tq(d, ps, cfg, q);
+    Tinf(i) = f(1e4);
+    Lq = log(1/(1-q))/lam0;
+    T  = arrayfun(f, dgrid);
+    R(i,:) = T/Tinf(i);
+    [dopt(i), Topt] = M.refineDelta(f, dgrid, T);
+    Ropt(i) = Topt/Tinf(i);
+
+    Aq = lam0*(1-q)*N;
+    slope(i) = Aq/(mu - Aq) - (g1 - 1)*q*N;
+    Rexp(i,:) = (Lq + slope(i)./dgrid)/Tinf(i);
+
+    T0ode(i) = f(0);
+    Gam = @(F) lam0*M.psiAt(ps, F);
+    Af  = @(F) 0.5*((mu + Gam(F)*N) - sqrt((mu + Gam(F)*N).^2 - 4*Gam(F)*mu.*(N - F)));
+    T0int(i) = integral(@(F) 1./arrayfun(Af, F), 0, q*N, 'RelTol', 1e-8);
+
+    % bracket of the expansion, extrapolated from the reduced dynamics in 1/delta
+    dd = [300 1000];
+    b  = arrayfun(@(d) d*(f(d) - Lq), dd);
+    bx = b(2) + (b(2) - b(1))*(1/dd(2))/(1/dd(1) - 1/dd(2));
+    fprintf(['fig7a: q = %.2f  T(inf) = %.2f (L_q/lam0 = %.2f)  optimum delta* = %.3f, ' ...
+             'T*/T(inf) = %.3f\n'], q, Tinf(i), Lq, dopt(i), Ropt(i));
+    fprintf(['        bracket: expansion %.3f, extrapolated %.3f   ' ...
+             'T(0): reduced dynamics %.2f (ratio %.3f), Eq. T0 %.2f (ratio %.3f), ' ...
+             'Eq. T0 off by %+.1f%%\n'], slope(i), bx, T0ode(i), T0ode(i)/Tinf(i), ...
+            T0int(i), T0int(i)/Tinf(i), 100*(T0int(i)/T0ode(i) - 1));
+    fprintf('        reduced ratio at delta = %.0e is %.4f\n', dgrid(1), R(i,1));
+end
+if any(T0ode < Tinf)
+    fprintf(['fig7a: with recruitment T_q(0) < T_q(inf) at q = %s, so delta = 0 is ' ...
+             'faster than immediate departure there\n'], mat2str(qlist(T0ode < Tinf)));
+end
+
+% ---- panel --------------------------------------------------------------
+cols = [P.greens(3,:); P.greens(5,:); P.blues(3,:)];
+h  = P.figure(P);
+ax = axes('Parent', h);  hold(ax, 'on');
+yl = [0.35 1.1];
+yline(ax, 1, ':', 'Color', [0 0 0], 'LineWidth', P.ALW);
+for i = 1:nq
+    ok = dgrid >= 3*abs(slope(i))/Tinf(i);        % correction at most a third
+    plot(ax, dgrid(ok), Rexp(i,ok), '--', 'Color', cols(i,:), 'LineWidth', P.ALW);
+end
+for i = 1:nq
+    plot(ax, dgrid, R(i,:), '-', 'Color', cols(i,:), 'LineWidth', P.LW);
+    plot(ax, dopt(i), Ropt(i), 'o', 'Color', cols(i,:), 'MarkerFaceColor', 'w', ...
+         'MarkerSize', 11, 'LineWidth', P.ALW);
+end
+% delta = 0 values on the left spine
+for i = 1:nq
+    plot(ax, dgrid(1), T0ode(i)/Tinf(i), 'o', 'Color', cols(i,:), ...
+         'MarkerFaceColor', cols(i,:), 'MarkerSize', 13, 'Clipping', 'off');
+    plot(ax, dgrid(1), T0int(i)/Tinf(i), 'd', 'Color', cols(i,:), ...
+         'MarkerFaceColor', 'w', 'MarkerSize', 13, 'LineWidth', P.ALW, 'Clipping', 'off');
+end
+set(ax, 'XScale', 'log');
+xlim(ax, [dgrid(1) dgrid(end)]);  ylim(ax, yl);
+set(ax, 'XTick', 10.^(-3:2));
+xlabel(ax, 'abandonment rate $\delta$', 'Interpreter','latex', 'FontSize', P.LSZ);
+ylabel(ax, 'feeding time ratio $T_q(\delta)/T_q(\infty)$', 'Interpreter','latex', ...
+       'FontSize', P.LSZ);
+P.axes(P, ax);
+set(ax, 'Position', [0.17 0.16 0.78 0.74]);
+
+% in-place labels, just right of the left spine where the curves separate
+for i = 1:nq
+    P.label(P, ax, 2.2e-3, R(i, find(dgrid >= 2.2e-3, 1)) + 0.012, ...
+            sprintf('$q=%.2g$', qlist(i)), 'Color', cols(i,:), ...
+            'HorizontalAlignment','left', 'VerticalAlignment','bottom');
+end
+P.label(P, ax, 90, 1.012, 'no lingering', 'HorizontalAlignment','right', ...
+        'VerticalAlignment','bottom', 'FontSize', P.FSZ-4);
+% key to the delta = 0 markers, right of the expansions
+P.label(P, ax, 2.0, 0.57, 'at $\delta=0$', 'HorizontalAlignment','left', ...
+        'VerticalAlignment','middle', 'FontSize', P.FSZ-4);
+plot(ax, 2.6, 0.50, 'o', 'Color', [0 0 0], 'MarkerFaceColor', [0 0 0], 'MarkerSize', 11);
+plot(ax, 2.6, 0.43, 'd', 'Color', [0 0 0], 'MarkerFaceColor', 'w', 'MarkerSize', 11, ...
+     'LineWidth', P.ALW);
+P.label(P, ax, 4.0, 0.50, 'reduced', 'HorizontalAlignment','left', ...
+        'VerticalAlignment','middle', 'FontSize', P.FSZ-4);
+P.label(P, ax, 4.0, 0.43, 'quasi-stationary', 'HorizontalAlignment','left', ...
+        'VerticalAlignment','middle', 'FontSize', P.FSZ-4);
+P.label(P, ax, 1.6, 0.72, 'large $\delta$ expansion', 'Color', [0.25 0.25 0.25], ...
+        'HorizontalAlignment','left', 'VerticalAlignment','middle', 'FontSize', P.FSZ-4);
+
+P.export(P, 'fig7a', outdir, h);
+out = struct('q',qlist,'dgrid',dgrid,'R',R,'Rexp',Rexp,'Tinf',Tinf,'slope',slope, ...
+             'T0ode',T0ode,'T0int',T0int,'dopt',dopt,'Ropt',Ropt,'g1',g1);
+end
+
+% =========================================================================
+% Panel (b), fig7b. Reduction error against the spectral gap.
+% =========================================================================
+function out = panel_b(M, P, G, ps, cfg, G2, outdir, deltas, nrep, cachefile, two)
+%PANEL_B  Reduction error against abandonment rate scaled by the spectral
+%   gap, one donor and two. Panel (b).
+%
+%       E(delta) = [T_q^sim - T_q^red] / T_q^red
+%
+%   One donor. abm ensemble cached under cachefile with a stamped key.
+%   Two donors at r = 4. abm2 ensemble read from two.cachefile, Fig. 6(b)'s cache,
+%   when its key matches the table G2, otherwise run into two.fallback. The
+%   reduction is recomputed here from twodonor on G2.
+%
+%   Gaps from spectralgap at full reliance and p = 0.3, 0.449 for one plume
+%   and 0.274 for two.
+
+if nargin < 8 || isempty(deltas), deltas = logspace(log10(0.05),log10(6),11); end
+if nargin < 9 || isempty(nrep),   nrep   = 150; end
+
+q    = 0.5;
+[GAP1, GAP2] = spectralgap(G.prm);
+L    = 2*pi/G.prm.v;
+Tinf = log(1/(1-q))/cfg.lam0;
+
+% ---- one donor ----------------------------------------------------------
+key = sprintf('vS4b|n=%d|d=%s|p0=%g', nrep, mat2str(deltas,4), ps.p0);
+Tsim = [];
+if isfile(cachefile)
+    C = load(cachefile);
+    if isfield(C,'key') && strcmp(C.key,key)
+        Tsim = C.Tsim;  SEs = C.SEs;
+        fprintf('fig7b: reusing %d cached one-donor realizations per delta\n', nrep);
+    end
+end
+if isempty(Tsim)
+    nd = numel(deltas);  Tsim = nan(1,nd);  SEs = nan(1,nd);
+    for id = 1:nd
+        v = arrayfun(@(k) M.abm(deltas(id), G, ps, cfg, q, k), 1:nrep);
+        v = v(isfinite(v));
+        Tsim(id) = mean(v);  SEs(id) = std(v)/sqrt(numel(v));
+        fprintf('  delta = %.3f done, T = %.1f +- %.1f\n', deltas(id), Tsim(id), SEs(id));
+    end
+    save(cachefile, 'Tsim', 'SEs', 'key');
+end
+Tred = arrayfun(@(d) M.Tq(d, ps, cfg, q), deltas);
+E1   = (Tsim - Tred)./Tred;
+SE1  = SEs./Tred;
+
+% ---- two donors ---------------------------------------------------------
+M2  = twodonor();
+c2  = struct('N', cfg.N, 'mutot', 2.0);
+c2.mu2 = c2.mutot/(1 + two.r);  c2.mu1 = two.r*c2.mu2;
+key2 = sprintf('%s|r=%g|q=%g|n=%d|d=%s|%s', 'v1-two-donor-asymptotics', two.r, q, ...
+               two.nrep, mat2str(two.deltas,4), G2.key);
+mu2 = [];
+for f = {two.cachefile, two.fallback}
+    if isfile(f{1})
+        C = load(f{1});
+        if isfield(C,'key') && strcmp(C.key, key2)
+            mu2 = C.mu_;  se2 = C.se;
+            fprintf('fig7b: two-donor ensemble read from %s (%d realizations)\n', f{1}, two.nrep);
+            break
+        end
+    end
+end
+if isempty(mu2)
+    fprintf('fig7b: no matching two-donor ensemble, running abm2 into %s\n', two.fallback);
+    nd = numel(two.deltas);  mu2 = zeros(1,nd);  se2 = zeros(1,nd);
+    for j = 1:nd
+        v = arrayfun(@(k) abm2(two.deltas(j), G2, c2, q, k), 1:two.nrep);
+        v = v(isfinite(v));
+        mu2(j) = mean(v);  se2(j) = std(v)/sqrt(numel(v));
+    end
+    mu_ = mu2;  se = se2;  key = key2;                               %#ok<NASGU>
+    save(two.fallback, 'mu_', 'se', 'key');
+end
+d2   = two.deltas;
+Tr2  = arrayfun(@(d) M2.Tq(d, G2, c2, 'full', q), d2);
+E2   = (mu2 - Tr2)./Tr2;
+SE2  = se2./Tr2;
+
+% ---- printout -----------------------------------------------------------
+fprintf('\n  one donor                                  two donors, r = %g\n', two.r);
+fprintf('  delta  delta/gap   error              delta  delta/gap   error\n');
+for k = 1:max(numel(deltas), numel(d2))
+    s1 = repmat(' ', 1, 43);  s2 = '';
+    if k <= numel(deltas)
+        s1 = sprintf('  %5.3f  %7.3f   %+5.1f +- %3.1f%%     ', deltas(k), deltas(k)/GAP1, ...
+                     100*E1(k), 100*1.96*SE1(k));
+    end
+    if k <= numel(d2)
+        s2 = sprintf('%5.3f  %7.3f   %+5.1f +- %3.1f%%', d2(k), d2(k)/GAP2, 100*E2(k), 100*1.96*SE2(k));
+    end
+    fprintf('%s%s\n', s1, s2);
+end
+lo1 = deltas/GAP1 < 1;  lo2 = d2/GAP2 < 1;
+[pk1, i1] = max(E1);
+fprintf(['fig7b: one donor, mean error %.1f%% below the gap, peak %.1f%% at delta/gap = %.2f ' ...
+         '(delta L = %.2f)\n'], 100*mean(E1(lo1)), 100*pk1, deltas(i1)/GAP1, deltas(i1)*L);
+fprintf('fig7b: two donors, mean error %.1f%% below the gap, %.1f%% above, range [%.1f, %.1f]%%\n', ...
+        100*mean(E2(lo2)), 100*mean(E2(~lo2)), 100*min(E2), 100*max(E2));
+fprintf('fig7b: gaps %.3f and %.3f, ratio %.2f;  T_1/2(inf) one donor %.1f\n', ...
+        GAP1, GAP2, GAP1/GAP2, Tinf);
+
+% ---- panel --------------------------------------------------------------
+c1 = P.greens(5,:);  cb = P.blues(3,:);
+h  = P.figure(P);
+ax = axes('Parent', h);  hold(ax, 'on');
+x1 = deltas/GAP1;  x2 = d2/GAP2;
+xl = [0.8*min([x1 x2]) 1.25*max([x1 x2])];
+yl = [-5, 100*max([E1 + 1.96*SE1, E2 + 1.96*SE2]) + 3];
+hb = patch(ax, [1 xl(2) xl(2) 1], [yl(1) yl(1) yl(2) yl(2)], [0.92 0.92 0.92], ...
+           'EdgeColor', 'none');
+yline(ax, 0, ':', 'Color', [0 0 0], 'LineWidth', P.ALW);
+xline(ax, 1, '--', 'Color', [0.3 0.3 0.3], 'LineWidth', P.ALW);
+plot(ax, x1, 100*E1, '-', 'Color', P.greens(2,:), 'LineWidth', P.ALW);
+plot(ax, x2, 100*E2, '-', 'Color', P.blues(1,:), 'LineWidth', P.ALW);
+errorbar(ax, x1, 100*E1, 100*1.96*SE1, 'o', 'Color', c1, 'MarkerFaceColor', 'w', ...
+         'LineWidth', P.ALW, 'MarkerSize', 12, 'CapSize', 10, 'LineStyle', 'none');
+errorbar(ax, x2, 100*E2, 100*1.96*SE2, 's', 'Color', cb, 'MarkerFaceColor', 'w', ...
+         'LineWidth', P.ALW, 'MarkerSize', 12, 'CapSize', 10, 'LineStyle', 'none');
+uistack(hb, 'bottom');
+set(ax, 'XScale', 'log', 'Layer', 'top');
+xlim(ax, xl);  ylim(ax, yl);
+set(ax, 'XTick', [0.1 1 10], 'XTickLabel', {'$0.1$','$1$','$10$'});
+xlabel(ax, 'scaled abandonment rate $\delta/(\vartheta_2-\vartheta_1)$', ...
+       'Interpreter','latex', 'FontSize', P.LSZ);
+ylabel(ax, 'reduction error (\%)', 'Interpreter','latex', 'FontSize', P.LSZ);
+P.axes(P, ax);
+set(ax, 'Position', [0.17 0.16 0.78 0.74]);
+
+P.label(P, ax, 1.55, 100*pk1, 'one donor', 'Color', c1, ...
+        'HorizontalAlignment','left', 'VerticalAlignment','bottom');
+P.label(P, ax, x2(1), 100*max(E2(1:3) + 1.96*SE2(1:3)) + 0.8, ...
+        {'two donors,', sprintf('$r=%g$', two.r)}, 'Color', cb, ...
+        'HorizontalAlignment','left', 'VerticalAlignment','bottom');
+P.label(P, ax, 1.1, yl(1) + 0.8, '$\delta=\vartheta_2-\vartheta_1$', ...
+        'HorizontalAlignment','left', 'VerticalAlignment','bottom');
+
+P.export(P, 'fig7b', outdir, h);
+out = struct('deltas',deltas,'E1',E1,'SE1',SE1,'Tsim',Tsim,'Tred',Tred,'d2',d2,'E2',E2, ...
+             'SE2',SE2,'abm2',mu2,'red2',Tr2,'gap1',GAP1,'gap2',GAP2,'nrep',nrep, ...
+             'nrep2',two.nrep,'r',two.r);
+end
+
+% =========================================================================
+% Panel (c), fig7c. Non-exponential service.
+% =========================================================================
+function out = panel_c(M, P, G, ps, cfg, outdir, deltas, nrep, cachefile)
+%PANEL_C  Interior optimum under non-exponential service. Panel (c),
+%   with the four service-time survival functions inset.
+%
+%   abm_svc runs with the service interval drawn from laws of equal mean 1/mu.
+%       exponential      CV = 1      the control
+%       deterministic    CV = 0
+%       lognormal        CV = 1.99
+%       Pareto, censored alpha = 1.21, censored at 179/7.9 mean durations
+%   The ensemble is cached under cachefile with a stamped key.
+
+if nargin < 7 || isempty(deltas), deltas = logspace(log10(0.05),log10(3),9); end
+if nargin < 8 || isempty(nrep),   nrep   = 80; end
+
+q    = 0.5;
+laws = local_laws(cfg);
+nl   = numel(laws);  nd = numel(deltas);
+
+key = sprintf('vS3|n=%d|d=%s|laws=%s|p0=%g', nrep, mat2str(deltas,4), ...
+              strjoin({laws.name},','), ps.p0);
+T = [];
+if isfile(cachefile)
+    C = load(cachefile);
+    if isfield(C,'key') && strcmp(C.key,key)
+        T = C.T;  SE = C.SE;
+        fprintf('fig7c: reusing %d cached realizations per (law, delta)\n', nrep);
     end
 end
 if isempty(T)
-    T = struct('kbar',KBARS,'W',{cell(1,2)},'G',{cell(1,2)},'D0',{cell(1,2)}, ...
-               'pgrid',pgrid,'ggrid',ggrid);
-    dg = prm.gmax/500;
-    for ik = 1:numel(KBARS)
-        pk = A.mkprm('kbar',KBARS(ik),'sig',prm.sig,'beta0',prm.beta0,'sm',prm.sm,'v',prm.v);
-        fprintf('figure9: kbar = %.4g, surface on %d x %d\n', KBARS(ik), numel(pgrid), numel(ggrid));
-        if ik == 1
-            Gk = G;  Wk = Wb;
-        else
-            Gk = M.gainTable(pk, pbase);
-            Wk = M.gainSurface(pk, pbase, ggrid);
+    T = nan(nl,nd);  SE = nan(nl,nd);
+    for il = 1:nl
+        for id = 1:nd
+            r = arrayfun(@(k) abm_svc(M, deltas(id), G, ps, cfg, q, k, laws(il).draw), 1:nrep);
+            r = r(isfinite(r));
+            T(il,id) = mean(r);  SE(il,id) = std(r)/sqrt(numel(r));
         end
-        We = M.gainSurface(pk, pext, ggrid);
-        if abs(We.T0 - Wk.T0) > 1e-8*Wk.T0
-            warning('figure9:T0mismatch', 'unaided MFPT differs between surface pieces');
-        end
-        Wk.p = pgrid;  Wk.G = [Wk.G We.G];
-        % dW/dgamma at gamma = 0, one-sided second order.
-        Wd = M.gainSurface(pk, pgrid, [0 dg 2*dg]);
-        T.D0{ik} = (-3*Wd.G(1,:) + 4*Wd.G(2,:) - Wd.G(3,:))/(2*dg);
-        T.W{ik} = Wk;  T.G{ik} = Gk;
+        fprintf('fig7c: %-18s done\n', laws(il).name);
     end
-    % One-sided slope of W at the ceiling at the peak. W has a cusp at p = 0.
-    h1 = 1e-4;
-    T.c1 = (T.W{1}.T0/A.moments(0, prm.sig, prm.beta0, prm.gmax, prm.sm, prm.theta, prm.v) - ...
-            T.W{1}.T0/A.moments(h1, prm.sig, prm.beta0, prm.gmax, prm.sm, prm.theta, prm.v))/h1;
-    save(cachefile,'T','key');
+    save(cachefile, 'T', 'SE', 'key');
 end
 
-W = T.W{1};
-psList = arrayfun(@(p0) M.psiTable(G, p0, W), P0LIST, 'uni', 0);
-G0 = max(W.G(:,1));
-fprintf('figure9 checks: p*/sigma = %.3f, G(0) = %.3f, g1 =', G.pstar/prm.sig, G0);
-fprintf(' %.3f', cellfun(@(s) s.g1, psList));
-fprintf(', F_sub ='); fprintf(' %.2f', cellfun(@(s) s.Fsub, psList)); fprintf('\n');
-if abs(G0 - 3.434) > 5e-3
-    warning('figure9:G0Moved', 'G(0) = %.4f differs from the reference 3.434', G0);
+dbest = nan(1,nl);  Tbest = nan(1,nl);  SEbest = nan(1,nl);
+for il = 1:nl
+    [~, ib] = min(T(il,:));
+    dbest(il) = deltas(ib);  Tbest(il) = T(il,ib);  SEbest(il) = SE(il,ib);
+    fprintf('fig7c: %-18s CV = %.2f  optimum delta = %.3f, T_1/2 = %.1f +- %.1f (1.96 SE %.1f)\n', ...
+            laws(il).name, laws(il).cv, deltas(ib), T(il,ib), SE(il,ib), 1.96*SE(il,ib));
 end
-if any(abs(cellfun(@(s) s.g1, psList) - [1.552 1.298 1.159]) > 8e-3)
-    warning('figure9:g1Moved', 'g_1 differs from the reference 1.552 / 1.298 / 1.159');
-end
-if any(abs(cellfun(@(s) s.Fsub, psList) - [1.14 2.59 4.68]) > 1e-2)
-    warning('figure9:FsubMoved', 'F_sub differs from the reference 1.14 / 2.59 / 4.68');
-end
-
-Q = struct('ak', @akTable, 'akv', @akTableV, 'mix', @mixGain, 'G0', G0, 'p0list', P0LIST, ...
-           'prm', prm, 'psList', {psList});
-
-out = struct('T',T,'G',G,'psList',{psList});
-out.b = panel_a(Q, T, P, OUTDIR, p0B);
-if fast
-    out.d = panel_c(prm, cfg.p0, OUTDIR, [1 2 3 5 10 20 30], 4000, 5e-3, 40000);
-else
-    out.d = panel_c(prm, cfg.p0, OUTDIR);
-end
-Q.vk = struct('k', out.d.k, 'ratio', out.d.ratio, 'vinf', out.d.vinf);   % measured k Var(peak)/p0^2 of the summed tents
-out.c = panel_b(Q, T, P, OUTDIR, Fb);
-save(fullfile(OUTDIR,'figure9_results.mat'),'-struct','out');
-
-% One row of three at the panel canvas size, 66 cm, included at full textwidth
-% like the other wide figures.
-names  = {'fig6b','fig6c','fig6d'};
-panels = cellfun(@(n) fullfile(OUTDIR,[n '.fig']), names, 'uni', 0);
-tiles  = [0 0 22 19; 22 0 22 19; 44 0 22 19];
-assemble_figure(fullfile(FIGDIR,'fig9'), panels, tiles, [66 19]);
-fprintf('figure9 complete. Assembled figure written to %s\n', fullfile(FIGDIR,'fig9'));
-end
-
-% ------------------------------------------------------------------------
-function rk = akTable(p, Gm, p0, K)
-%AKTABLE  a_k for k = 1..K, the smoothing of each row of Gm (rows gamma,
-%   columns p) by N(0, p0^2/k), offsets clamped to max(p) as in psiTable.
-z  = linspace(-6, 6, 1201).';
-w  = exp(-z.^2/2);  w = w/trapz(z, w);
-Gt = Gm.';
-pmax = max(p);
-rk = zeros(size(Gm,1), K);
-for k = 1:K
-    pp = min(abs(z*p0/sqrt(k)), pmax);
-    rk(:,k) = trapz(z, w.*interp1(p(:), Gt, pp), 1).';
-end
-end
-
-% ------------------------------------------------------------------------
-function rk = akTableV(p, Gm, p0, K, kk, rr, vinf)
-%AKTABLEV  As akTable, but with the peak variance of a literal sum of tents.
-%   The scaled variance rr at the simulated counts kk is interpolated in k and
-%   held at its last value beyond them, so only F with Poisson mass
-%   mostly below k = kk(end) should be read, so the peak spread is p0 sqrt(r(k)/k).
-z  = linspace(-6, 6, 1201).';
-w  = exp(-z.^2/2);  w = w/trapz(z, w);
-Gt = Gm.';
-pmax = max(p);
-r = interp1(kk, rr, 1:K, 'pchip', rr(end));   % measured counts only; held beyond k = kk(end)
-rk = zeros(size(Gm,1), K);
-for k = 1:K
-    pp = min(abs(z*p0*sqrt(r(k)/k)), pmax);
-    rk(:,k) = trapz(z, w.*interp1(p(:), Gt, pp), 1).';
-end
-end
-
-% ------------------------------------------------------------------------
-function [vals, jsel, dG] = mixGain(rk, F)
-%MIXGAIN  Gtilde(F) = max_gamma [e^-F + sum_k pi_k a_k], the selected row, and
-%   Gtilde'(F) = sum_{k>=0} pi_k (a_{k+1} - a_k) at that row, a_0 = 1. At F = 0
-%   the maximizer is the whole interval and the right derivative is g_1 - 1.
-K  = size(rk,2);  ks = 1:K;
-inc = [rk(:,1) - 1, diff(rk,1,2)];        % a_{k+1} - a_k for k = 0..K-1
-vals = ones(size(F));  jsel = ones(size(F));  dG = zeros(size(F));
-for i = 1:numel(F)
-    f = F(i);
-    if f <= 0
-        [g1, j] = max(rk(:,1));  jsel(i) = j;  dG(i) = g1 - 1;
-        continue
-    end
-    pk = exp(-f + ks*log(f) - gammaln(ks+1));
-    [vals(i), j] = max(exp(-f) + rk*pk(:));
-    jsel(i) = j;
-    dG(i) = [exp(-f), pk(1:K-1)]*inc(j,:).';
-end
-end
-
-% =========================================================================
-% Panel (a), fig6b. Value of the first scenter.
-% =========================================================================
-function out = panel_a(Q, T, P, outdir, p0s)
-%PANEL_A  Value of the first scenter, g_1, against the single-scenter
-%   offset p_0, with the two-sided bound. Panel (a),
-%   with in-panel labels.
-%
-%       g_1(p_0) = max_gamma  Int W(gamma,|p|) N(p; 0, p_0^2) dp
-%
-%       1 - (1 - Wmin)(1 - Phi*)  <=  a_1(gamma)  <=  1 + (G(0) - 1) Phi*,
-%       Phi* = 2 Phi(p*/p_0) - 1
-%
-%   Solid is kbar = 0.0314, dashed kbar = 0.8. The crossing where g_1 returns
-%   to one is bisected on the reliance derivative of a_1 at gamma = 0,
-%   s(p_0) = Int dW/dgamma|_0 N(p; 0, p_0^2) dp.
-
-nk = numel(T.kbar);  npo = numel(p0s);
-g1 = nan(nk,npo);  gstar = nan(nk,npo);  ub = g1;  lb = g1;
-p0crit = nan(nk,1);  p0need = nan(nk,1);  pstars = nan(nk,1);
-G0s = nan(nk,1);  Wmins = nan(nk,1);  g1ref = nan(nk,3);
-
-z = linspace(-6,6,1201);
-w = exp(-z.^2/2);  w = w/trapz(z,w);
-for ik = 1:nk
-    Wk = T.W{ik};  pmax = max(Wk.p);
-    Wmins(ik)  = min(Wk.G(:));
-    G0s(ik)    = max(Wk.G(:,1));
-    pstars(ik) = T.G{ik}.pstar;
-    for j = 1:npo
-        a1 = Q.ak(Wk.p, Wk.G, p0s(j), 1);
-        [g1(ik,j), imax] = max(a1);
-        gstar(ik,j) = Wk.gam(imax);
-        Phi = erf(pstars(ik)/p0s(j)/sqrt(2));
-        ub(ik,j) = 1 + (G0s(ik) - 1)*Phi;
-        lb(ik,j) = 1 - (1 - Wmins(ik))*(1 - Phi);
-    end
-    g1ref(ik,:) = arrayfun(@(q) max(Q.ak(Wk.p, Wk.G, q, 1)), Q.p0list);
-
-    sfun = @(qq) trapz(z, w.*interp1(Wk.p, T.D0{ik}, min(abs(z*qq), pmax), 'linear'));
-    plo = min(p0s);  phi = max(p0s);
-    if sfun(plo) > 0 && sfun(phi) <= 0
-        for it = 1:60
-            pm = 0.5*(plo + phi);
-            if sfun(pm) > 0, plo = pm; else, phi = pm; end
-            if phi - plo < 1e-8*phi, break, end
-        end
-        p0crit(ik) = 0.5*(plo + phi);
-    else
-        warning('fig6b:noCrossing', 'at kbar = %.4g the crossing is not bracketed by the sweep', T.kbar(ik));
-    end
-    Phineed = (1 - Wmins(ik))/(G0s(ik) - Wmins(ik));
-    p0need(ik) = pstars(ik)/max(sqrt(2)*erfinv(Phineed), eps);
-    fprintf(['fig6b: kbar = %.4g, G(0) = %.3f, Wmin = %.3f, p* = %.4f, ' ...
-             'g_1 returns to 1 at p_0 = %.3f (%.2f sigma), necessary bound %.2f\n'], ...
-            T.kbar(ik), G0s(ik), Wmins(ik), pstars(ik), p0crit(ik), ...
-            p0crit(ik)/Q.prm.sig, p0need(ik));
-    fprintf('fig6b: kbar = %.4g, g_1 at p0 = 0.75, 1.13, 1.52: %.4f %.4f %.4f\n', ...
-            T.kbar(ik), g1ref(ik,:));
-end
-if any(g1(:) > ub(:) + 1e-6) || any(g1(:) < lb(:) - 1e-6)
-    warning('fig6b:outsideBracket', 'g_1 fell outside the two-sided bound somewhere');
-end
+Tinf = log(1/(1-q))/cfg.lam0;
+z = abs(Tbest(1) - 90.2)/sqrt(SEbest(1)^2 + 0.7^2);
+fprintf('fig7c: exponential control %.1f +- %.1f against abm 90.2 +- 0.7 (%.1f sigma)\n', ...
+        Tbest(1), SEbest(1), z);
+step  = exp(mean(diff(log(deltas))));
+cells = log(max(dbest)/min(dbest))/log(step);
+fprintf('fig7c: optima span a factor %.2f in delta, %.2f grid cells (one cell = %.0f%%)\n', ...
+        max(dbest)/min(dbest), cells, 100*(step - 1));
+fprintf('fig7c: speedup at each optimum over T_1/2(inf) = %.1f:%s\n', Tinf, ...
+        sprintf(' %.0f%%', 100*(1 - Tbest/Tinf)));
 
 % ---- panel --------------------------------------------------------------
+cols = [P.blues(3,:); P.greens(6,:); P.greens(4,:); [0.55 0.55 0.55]];
+mk   = {'o','s','^','d'};
 h  = P.figure(P);
-ax = axes('Parent',h);  hold(ax,'on');
-cols = [P.greens(6,:); P.blues(3,:)];
-for ik = 1:nk
-    fill(ax, [p0s fliplr(p0s)], [lb(ik,:) fliplr(ub(ik,:))], cols(ik,:), ...
-         'FaceAlpha', 0.09, 'EdgeColor','none');
+ax = axes('Parent', h);  hold(ax, 'on');
+yline(ax, Tinf, ':', 'Color', [0 0 0], 'LineWidth', P.ALW);
+for il = 1:nl
+    plot(ax, deltas, T(il,:), '-', 'Color', cols(il,:), 'LineWidth', P.ALW);
 end
-yline(ax, 1, '-', 'Color', [0.82 0.84 0.86], 'LineWidth', P.ALW);
-for ik = 1:nk
-    plot(ax, p0s, g1(ik,:), P.p0sty{ik}, 'Color', cols(ik,:), 'LineWidth', P.LW);
-    if ~isnan(p0crit(ik))
-        plot(ax, p0crit(ik), 1, 'o', 'Color', cols(ik,:), 'MarkerFaceColor','w', ...
-             'MarkerSize', 13, 'LineWidth', P.ALW);
-    end
+for il = 1:nl
+    errorbar(ax, deltas, T(il,:), 1.96*SE(il,:), mk{il}, 'Color', cols(il,:), ...
+             'MarkerFaceColor', 'w', 'LineWidth', P.ALW, 'MarkerSize', 11, ...
+             'CapSize', 8, 'LineStyle', 'none');
+    plot(ax, dbest(il), Tbest(il), mk{il}, 'Color', cols(il,:), ...
+         'MarkerFaceColor', cols(il,:), 'MarkerSize', 11, 'LineWidth', P.ALW);
 end
-g1op = g1ref(1,1);
-plot(ax, 0.75, g1op, 'v', 'Color', cols(1,:), 'MarkerFaceColor', cols(1,:), 'MarkerSize', 15);
-for i = 2:3
-    plot(ax, Q.p0list(i), g1ref(1,i), 'o', 'MarkerSize', 7, ...
-         'MarkerFaceColor', P.p0cols(i,:), 'MarkerEdgeColor','none');
-end
-set(ax,'XScale','log');
-xlim(ax, [min(p0s) max(p0s)]);
-ylim(ax, [0.5 max(ub(:))*1.02]);
-set(ax, 'XTick', [0.3 0.5 1 2 5]);
-
-fs = P.FSZ - 2;
-text(ax, 0.8, 1.78, 'representative', 'Interpreter','latex', 'FontSize', fs, ...
-     'Color', cols(1,:), 'HorizontalAlignment','left');
-text(ax, 0.32, 3.12, 'two-sided bound', 'Interpreter','latex', 'FontSize', fs, ...
-     'Color', P.grey, 'HorizontalAlignment','left');
-text(ax, 0.32, 2.52, '$\overline\kappa=0.0314$', 'Interpreter','latex', ...
-     'FontSize', fs, 'Color', cols(1,:));
-text(ax, 0.32, 1.45, '$\overline\kappa=0.8$', 'Interpreter','latex', ...
-     'FontSize', fs, 'Color', cols(2,:));
-text(ax, p0crit(1), 0.9, {'$g_1$ returns', 'to one'}, 'Interpreter','latex', ...
-     'FontSize', fs, 'Color', 'k', 'HorizontalAlignment','center', 'VerticalAlignment','top');
-
-xlabel(ax, 'single-scenter offset $p_0$', 'Interpreter','latex', 'FontSize', P.LSZ);
-ylabel(ax, 'first-scenter value $g_1$', 'Interpreter','latex', 'FontSize', P.LSZ);
-P.axes(P, ax);
-set(ax, 'Position', [0.17 0.16 0.77 0.72]);
-P.export(P, 'fig6b', outdir, h);
-
-out = struct('p0s',p0s,'g1',g1,'gstar',gstar,'ub',ub,'lb',lb,'p0crit',p0crit, ...
-             'p0need',p0need,'pstar',pstars,'G0',G0s,'Wmin',Wmins,'g1ref',g1ref);
-end
-
-% =========================================================================
-% Panel (b), fig6c. Gain elasticity and its limits.
-% =========================================================================
-function out = panel_b(Q, T, P, outdir, Fb)
-%PANEL_B  Gain elasticity e(Fbar) = Fbar Gtilde'/Gtilde for the three
-%   offsets, with the small- and large-Fbar asymptotes at p_0 = 0.75.
-%
-%   Gtilde' is taken by the envelope theorem from the Poisson increments, not
-%   by differencing the table.
-%
-%   Small Fbar: e ~ (g_1 - 1) Fbar.
-%   Large Fbar: W has a cusp at the peak, W(gamma_0, p) ~ G(0) - c_1 |p|, with
-%   c_1 the one-sided slope at the ceiling reliance. Averaging |p| over
-%   N(0, p_0^2/k) and k ~ Poisson(Fbar) gives
-%       Gtilde ~ G(0) - C/sqrt(Fbar),   C = c_1 p_0 sqrt(2/pi),
-%       e      ~ C/(2 G(0) sqrt(Fbar)).
-%   C is computed from c_1 with no fit and checked against the tail of the
-%   computed Gtilde. The curvature form C/(G(0) Fbar) needs a smooth peak,
-%   which W does not have.
-
-W  = T.W{1};  G0 = Q.G0;
-Fl = logspace(log10(min(Fb)), log10(400), 240);    % to read the tail
-K  = ceil(max(Fl) + 12*sqrt(max(Fl)) + 30);
-np = numel(Q.p0list);
-e  = nan(np, numel(Fl));  Gt = e;  gsel = e;
-epk = nan(1,np);  Fpk = nan(1,np);  g1 = nan(1,np);
-for i = 1:np
-    rk = Q.ak(W.p, W.G, Q.p0list(i), K);
-    [Gt(i,:), j, dG] = Q.mix(rk, Fl);
-    gsel(i,:) = W.gam(j);
-    e(i,:) = Fl.*dG./Gt(i,:);
-    g1(i) = max(rk(:,1));
-    [~, kk] = max(e(i,:));
-    % Parabolic refinement in log Fbar.
-    if kk > 1 && kk < numel(Fl)
-        u = log(Fl(kk-1:kk+1));  c = polyfit(u, e(i,kk-1:kk+1), 2);
-        Fpk(i) = exp(-c(2)/(2*c(1)));  epk(i) = polyval(c, log(Fpk(i)));
-    else
-        Fpk(i) = Fl(kk);  epk(i) = e(i,kk);
-    end
-end
-if any(abs(gsel(:,2:end) - max(W.gam)) > 1e-12, 'all')
-    fprintf('fig6c: the maximizing reliance leaves the ceiling somewhere on the sweep\n');
-else
-    fprintf('fig6c: the maximizing reliance sits on the ceiling for every Fbar > 0 and all three offsets\n');
-end
-
-% Cross-check against the table derivative the reduced model uses.
-M = lingermodel();
-edl = Fb.*M.dlogPsi(Q.psList{1}, Fb);
-eme = interp1(Fl, e(1,:), Fb);
-fprintf('fig6c: max |e_envelope - e_dlogPsi| at p0 = 0.75 on Fbar in [0.1, 25]: %.4f\n', ...
-        max(abs(eme(Fb <= 25) - edl(Fb <= 25))));
-
-C  = T.c1*Q.p0list(1)*sqrt(2/pi);
-Ct = sqrt(Fl).*(G0 - Gt(1,:));
-fprintf('fig6c: one-sided slope of W at the peak c1 = %.3f, so C = c1 p0 sqrt(2/pi) = %.3f\n', T.c1, C);
-fprintf('fig6c: tail check sqrt(F)(G0 - Gtilde) at F = 25, 100, 400: %.3f %.3f %.3f\n', ...
-        interp1(Fl, Ct, [25 100 400]));
-fprintf('fig6c: F(G0 - Gtilde) at F = 25, 100, 400: %.2f %.2f %.2f (no 1/F limit)\n', ...
-        interp1(Fl, Fl.*(G0 - Gt(1,:)), [25 100 400]));
-sl = polyfit(log(Fl(Fl >= 100)), log(G0 - Gt(1, Fl >= 100)), 1);
-fprintf('fig6c: log-log slope of G0 - Gtilde over F in [100, 400]: %.3f\n', sl(1));
-Fpred = (C/(2*G0*(g1(1) - 1)))^(2/3);
-for i = 1:np
-    fprintf('fig6c: p0 = %.2f, elasticity peak e = %.3f at Fbar = %.2f\n', Q.p0list(i), epk(i), Fpk(i));
-end
-fprintf('fig6c: asymptote crossing predicts the p0 = 0.75 peak near Fbar = %.2f\n', Fpred);
-
-% ---- panel --------------------------------------------------------------
-h  = P.figure(P);
-ax = axes('Parent',h);  hold(ax,'on');
-show = Fl <= max(Fb);
-Fs = Fl(show);
-aC = P.grey;
-% Literal sum of tents at the reference offset, with the measured peak variance.
-rkv = Q.akv(W.p, W.G, Q.p0list(1), K, Q.vk.k, Q.vk.ratio, Q.vk.vinf);
-[Gv, jv, dGv] = Q.mix(rkv, Fl);
-ev = Fl.*dGv./Gv;
-[~, kv] = max(ev);
-u = log(Fl(kv-1:kv+1));  cv = polyfit(u, ev(kv-1:kv+1), 2);
-Fpkv = exp(-cv(2)/(2*cv(1)));  epkv = polyval(cv, log(Fpkv));
-fprintf('fig6c: summed-tent peak variance, elasticity peak e = %.3f at Fbar = %.2f\n', epkv, Fpkv);
-plot(ax, Fs, (g1(1) - 1)*Fs, ':', 'Color', aC, 'LineWidth', P.ALW);
-plot(ax, Fs, C./(2*G0*sqrt(Fs)), ':', 'Color', aC, 'LineWidth', P.ALW);
-for i = np:-1:1
-    plot(ax, Fs, e(i,show), P.p0sty{i}, 'Color', P.p0cols(i,:), 'LineWidth', P.LW);
-end
-vshow = show & (Fl <= 12);   % measured counts reach k = 30, so read F <~ 12
-plot(ax, Fl(vshow), ev(vshow), '--', 'Color', [0.1 0.1 0.1], 'LineWidth', P.LW-1.5);
-plot(ax, Fpkv, epkv, 'o', 'MarkerSize', 11, 'LineWidth', P.ALW, ...
-     'MarkerFaceColor','w', 'MarkerEdgeColor', [0.1 0.1 0.1]);
-for i = 1:np
-    plot(ax, Fpk(i), epk(i), 'o', 'MarkerSize', 11, 'LineWidth', P.ALW, ...
-         'MarkerFaceColor','w', 'MarkerEdgeColor', P.p0cols(i,:));
-end
-set(ax, 'XScale','log');
-xlim(ax, [min(Fb) max(Fb)]);  ylim(ax, [0 0.4]);
-set(ax, 'XTick', [0.1 1 10]);
-
-fs = P.FSZ - 2;
-% The peak value is convention dependent, so it is marked but not printed;
-% the caption gives it.
-text(ax, 0.115, 0.30, '$(g_1-1)\bar F$', 'Interpreter','latex', 'FontSize', fs, 'Color', aC);
-text(ax, 5.0, 0.288, '$C/2G(0)\sqrt{\bar F}$', 'Interpreter','latex', ...
-     'FontSize', fs, 'Color', aC, 'HorizontalAlignment','left');
-swatches(P, ax, 6, 9, 9.8, [0.39 0.362 0.334], Q.p0list);
-plot(ax, [6 9], 0.035*[1 1], '--', 'Color', [0.1 0.1 0.1], 'LineWidth', P.LW-1.5);
-text(ax, 9.8, 0.035, 'summed tents', 'Interpreter','latex', 'FontSize', P.FSZ-4, ...
-     'Color', [0.1 0.1 0.1], 'VerticalAlignment','middle');
-
-xlabel(ax, 'scenting population $\bar F$', 'Interpreter','latex', 'FontSize', P.LSZ);
-ylabel(ax, 'gain elasticity $e(\bar F)$', 'Interpreter','latex', 'FontSize', P.LSZ);
-P.axes(P, ax);
-set(ax, 'Position', [0.17 0.16 0.77 0.72]);
-P.export(P, 'fig6c', outdir, h);
-
-out = struct('epkv',epkv,'Fpkv',Fpkv,'F',Fl,'e',e,'Gt',Gt,'epk',epk,'Fpk',Fpk,'g1',g1,'C',C,'c1',T.c1, ...
-             'tailslope',sl(1),'Fpred',Fpred);
-end
-
-% ------------------------------------------------------------------------
-function swatches(P, ax, x0, x1, xt, ys, p0list)
-%SWATCHES  Hand-drawn line-style key for the p_0 family, as axes objects.
-for i = 1:numel(ys)
-    plot(ax, [x0 x1], ys(i)*[1 1], P.p0sty{i}, 'Color', P.p0cols(i,:), 'LineWidth', P.LW-0.5);
-    text(ax, xt, ys(i), sprintf('$p_0=%.2f$', p0list(i)), 'Interpreter','latex', ...
-         'FontSize', P.FSZ-4, 'Color', P.p0cols(i,:), 'VerticalAlignment','middle');
-end
-end
-
-% =========================================================================
-% Panel (c), fig6d. Peak variance against scenter count.
-% =========================================================================
-function out = panel_c(prm, p0, outdir, klist, nmc, dx, nmed, seed, mseed)
-%PANEL_C  Variance ratio k Var(peak)/p0^2 of the aggregate plume peak
-%   against scenter count, against the sample-median values v_k, the model
-%   value 1, and the two limits of the tent peak. Panel (c).
-%
-%   Peak ensemble. Scenter offsets are xi_i ~ N(0, p0^2), each casting a unit
-%   tent of half-width sigma, summed on the line. The peak is the argmax of
-%   the summed cue on a uniform grid of spacing DX. On a plateau of the
-%   aggregate, where the maximum is attained on an interval, the peak is the
-%   midpoint of the run. The grid peak is checked against the exact maximum,
-%   which sits at one of the xi_i since the aggregate is piecewise linear with
-%   downward kinks only at the scenters. The sample median and the sample mean
-%   of the same offsets are kept for comparison. The ensemble is cached in
-%   OUTDIR under a stamped key.
-%
-%   The Monte Carlo band is +-1.96 standard errors of the sample variance,
-%   using the sample fourth moment.
-%
-%   For many scenters the peak is the zero of the aggregate slope, whose mean
-%   is the tent-smoothed offset density. Linearizing about the origin with
-%   z = sigma/p0 gives
-%
-%       k Var(peak)/p0^2 -> pi erf(z/sqrt 2) / (2 (1 - exp(-z^2/2))^2),
-%
-%   which is pi/2, the sample median, when sigma >> p0 and grows as the
-%   cluster widens against the tent.
-%
-%   v_k for the sample median is estimated from NMED draws per k.
-
-if nargin < 3 || isempty(outdir), outdir = 'output'; end
-if nargin < 4 || isempty(klist),  klist = [1 2 3 4 5 6 8 10 13 16 20 25 30]; end
-if nargin < 5 || isempty(nmc),    nmc = 40000; end
-if nargin < 6 || isempty(dx),     dx = 2e-3; end
-if nargin < 7 || isempty(nmed),   nmed = 400000; end
-if nargin < 8 || isempty(seed),   seed = 17; end
-if nargin < 9 || isempty(mseed),  mseed = 29; end
-
-M = lingermodel();  P = linger_style();
-sig = prm.sig;
-
-% ---- peak ensemble ------------------------------------------------------
-cfile = fullfile(outdir, 'fig6d_cache.mat');
-key = M.stamp('fig6d-grid-argmax', sig, p0, klist, nmc, dx, seed);
-D = [];
-if isfile(cfile)
-    C = load(cfile);
-    if isfield(C, 'key') && strcmp(C.key, key), D = C.R; fprintf('fig6d: loaded stamped peak ensemble\n'); end
-end
-if isempty(D)
-    nk = numel(klist);
-    pk = zeros(nmc, nk);  pe = zeros(nmc, nk);  md = zeros(nmc, nk);  mn = zeros(nmc, nk);
-    narrow = zeros(1, nk);
-    for a = 1:nk
-        k = klist(a);
-        rng(seed + k);
-        X = p0*randn(nmc, k);
-        md(:,a) = median(X, 2);  mn(:,a) = mean(X, 2);
-        narrow(a) = mean(max(X, [], 2) - min(X, [], 2) < sig);
-        pk(:,a) = gridPeak(X, sig, dx);
-        pe(:,a) = exactPeak(X, sig);
-        fprintf('fig6d: k = %d done\n', k);
-    end
-    R = struct('k',klist,'peak',pk,'exact',pe,'median',md,'mean',mn, ...
-               'narrow',narrow,'n',nmc,'dx',dx,'p0',p0,'sig',sig);
-    save(cfile, 'R', 'key');
-    D = R;
-end
-
-agree = mean(abs(D.peak - D.exact) <= D.dx);
-atmed = mean(abs(D.peak - D.median) <= D.dx);
-
-% ---- variance ratios ----------------------------------------------------
-k = D.k;  n = D.n;
-z = sig/p0;
-vinf = pi*erf(z/sqrt(2))/(2*(1 - exp(-z^2/2))^2);
-
-vr = zeros(size(k));  vse = zeros(size(k));  vmn = zeros(size(k));
-for a = 1:numel(k)
-    x = D.peak(:,a) - mean(D.peak(:,a));
-    s2 = mean(x.^2)*n/(n-1);  m4 = mean(x.^4);
-    vr(a)  = k(a)*s2/p0^2;
-    vse(a) = k(a)*sqrt(max(m4 - s2^2*(n-3)/(n-1), 0)/n)/p0^2;
-    vmn(a) = k(a)*var(D.mean(:,a))/p0^2;
-end
-% v_k from a larger median ensemble.
-vk = zeros(size(k));
-for a = 1:numel(k)
-    rng(mseed + k(a));
-    vk(a) = k(a)*var(median(randn(nmed, k(a)), 2));
-end
-
-for a = 1:numel(k)
-    fprintf(['fig6d: k = %2d  tent peak %.3f +- %.3f   sample median v_k %.3f   sample mean %.3f\n' ...
-             '              grid = exact peak on %.3f of draws, peak = sample median on %.3f, ' ...
-             'cluster narrower than sigma on %.3f\n'], ...
-            k(a), vr(a), 1.96*vse(a), vk(a), vmn(a), agree(a), atmed(a), D.narrow(a));
-end
-fprintf('fig6d: large-k limit of the tent peak %.3f at sigma/p0 = %.3f; median limit pi/2 = %.3f\n', ...
-        vinf, z, pi/2);
-
-% ---- panel --------------------------------------------------------------
-cM = P.blues(3,:);  cV = P.greens(4,:);
-h = P.figure(P);  ax = axes('Parent', h);  hold(ax, 'on');
-kl = [0.8 40];
-fill(ax, [k fliplr(k)], [vr + 1.96*vse, fliplr(vr - 1.96*vse)], P.blues(1,:), ...
-     'FaceAlpha', 0.5, 'EdgeColor', 'none');
-plot(ax, kl, vinf*[1 1], '--', 'Color', P.grey, 'LineWidth', P.ALW);
-plot(ax, kl, pi/2*[1 1], ':', 'Color', P.grey, 'LineWidth', P.ALW);
-plot(ax, kl, [1 1], '-', 'Color', P.grey, 'LineWidth', P.ALW);
-plot(ax, k, vk, '-', 'Color', cV, 'LineWidth', P.LW);
-plot(ax, k, vk, 'o', 'Color', cV, 'MarkerFaceColor', cV, 'MarkerSize', 7);
-plot(ax, k, vr, '-', 'Color', cM, 'LineWidth', P.LW);
-plot(ax, k, vr, 'o', 'Color', cM, 'MarkerFaceColor', 'w', 'MarkerSize', 12, 'LineWidth', P.ALW);
 set(ax, 'XScale', 'log');
-xlim(ax, kl);  ylim(ax, [0 1.12*vinf]);
-set(ax, 'XTick', [1 3 10 30]);
-xlabel(ax, 'scenters $k$', 'Interpreter','latex', 'FontSize', P.LSZ);
-ylabel(ax, 'variance ratio $k\,\mathrm{Var}(p)/p_0^2$', 'Interpreter','latex', 'FontSize', P.LSZ);
+xl = [0.04 4];  yl = [82 210];
+xlim(ax, xl);  ylim(ax, yl);
+set(ax, 'XTick', [0.1 1], 'YTick', 100:20:140);
+xlabel(ax, 'abandonment rate $\delta$', 'Interpreter','latex', 'FontSize', P.LSZ);
+ylabel(ax, 'half-colony feeding time $T_{1/2}$', 'Interpreter','latex', 'FontSize', P.LSZ);
 P.axes(P, ax);
-set(ax, 'Position', [0.17 0.17 0.76 0.72]);
-P.label(P, ax, 0.9, vinf, 'large-$k$ limit', 'Color', P.grey, 'VerticalAlignment','bottom');
-P.label(P, ax, 0.9, pi/2, '$\pi/2$', 'Color', P.grey, 'VerticalAlignment','bottom');
-P.label(P, ax, 38, 1, 'model, sample mean', 'Color', P.grey, 'HorizontalAlignment','right', 'VerticalAlignment','top');
-P.label(P, ax, 6, interp1(k, vr, 6) + 0.25, 'tent peak', 'Color', cM, 'HorizontalAlignment','right', 'VerticalAlignment','bottom');
-P.label(P, ax, 38, pi/2 + 0.05, 'sample median', 'Color', cV, 'HorizontalAlignment','right', 'VerticalAlignment','bottom');
+set(ax, 'Position', [0.17 0.16 0.78 0.74]);
+P.label(P, ax, 0.045, Tinf + 1, 'no lingering', 'HorizontalAlignment','left', ...
+        'VerticalAlignment','bottom', 'FontSize', P.FSZ-4);
 
-P.export(P, 'fig6d', outdir, h);
-close(h);
+% key, marker and name, between the curves and the no-lingering line
+names = {'exponential', 'deterministic', 'lognormal', 'censored Pareto'};
+for il = 1:nl
+    yk = 111 + 7.5*(il - 1);
+    plot(ax, 0.052, yk, mk{il}, 'Color', cols(il,:), 'MarkerFaceColor', 'w', ...
+         'MarkerSize', 11, 'LineWidth', P.ALW);
+    P.label(P, ax, 0.06, yk, names{il}, 'Color', cols(il,:), 'HorizontalAlignment','left', ...
+            'VerticalAlignment','middle', 'FontSize', P.FSZ-4);
+end
 
-out = struct('k',k,'ratio',vr,'se',vse,'vk',vk,'vmean',vmn,'vinf',vinf,'z',z, ...
-             'agree',agree,'atmedian',atmed,'narrow',D.narrow,'n',n,'p0',p0,'sig',sig);
+% inset, survival functions of the four laws on log axes, above the line
+p  = get(ax, 'Position');
+ai = axes('Parent', h, 'Position', [p(1)+0.20*p(3), p(2)+0.68*p(4), 0.50*p(3), 0.31*p(4)]);
+hold(ai, 'on');
+tt = logspace(-1, 1.5, 600);
+for il = 1:nl
+    [tx, Sx] = laws(il).surv(tt);
+    plot(ai, tx, Sx, '-', 'Color', cols(il,:), 'LineWidth', P.LW-1);
+end
+set(ai, 'XScale','log', 'YScale','log', 'FontSize', P.FSZ-4, 'LineWidth', P.ALW-0.5, ...
+    'TickDir','out', 'Box','off', 'TickLabelInterpreter','latex', 'Color','none', ...
+    'XTick', [1e-1 1 1e1], 'YTick', [1e-3 1e-2 1e-1 1], 'XMinorTick','off', 'YMinorTick','off', ...
+    'Layer', 'top');
+xlim(ai, [1e-1 10^1.5]);  ylim(ai, [1e-3 1.5]);
+xlabel(ai, 'service time $\times\,\mu$', 'Interpreter','latex', 'FontSize', P.FSZ-4);
+ylabel(ai, 'survival', 'Interpreter','latex', 'FontSize', P.FSZ-4);
+
+P.export(P, 'fig7c', outdir, h);
+out = struct('deltas',deltas,'T',T,'SE',SE,'laws',{{laws.name}},'cv',[laws.cv], ...
+             'dbest',dbest,'Tbest',Tbest,'SEbest',SEbest,'nrep',nrep,'q',q,'Tinf',Tinf);
 end
 
 % ------------------------------------------------------------------------
-function pk = gridPeak(X, sig, dx)
-%GRIDPEAK  Argmax of the summed tents on a uniform grid, plateau midpoint.
-[n, k] = size(X);
-pk = zeros(n, 1);  chunk = 2000;
-for c0 = 1:chunk:n
-    rows = c0:min(n, c0 + chunk - 1);
-    Xr = X(rows,:);
-    lo = floor((min(Xr(:)) - sig)/dx)*dx;  hi = ceil((max(Xr(:)) + sig)/dx)*dx;
-    xg = lo:dx:hi;
-    Cg = zeros(numel(rows), numel(xg));
-    for i = 1:k
-        Cg = Cg + max(0, 1 - abs(xg - Xr(:,i))/sig);
-    end
-    [cm, jm] = max(Cg, [], 2);
-    tol = 1e-9*k;
-    for r = 1:numel(rows)
-        top = Cg(r,:) >= cm(r) - tol;
-        j1 = jm(r);  j2 = jm(r);
-        while j1 > 1 && top(j1-1), j1 = j1 - 1; end
-        while j2 < numel(xg) && top(j2+1), j2 = j2 + 1; end
-        pk(rows(r)) = 0.5*(xg(j1) + xg(j2));
-    end
-end
+function laws = local_laws(cfg)
+%LOCAL_LAWS  Service-interval samplers, each with its survival
+%   function, every one rescaled to mean 1/mu.
+m = 1/cfg.mu;
+
+laws(1).name = 'exponential';
+laws(1).cv   = 1.00;
+laws(1).draw = @() -m*log(rand);
+laws(1).surv = @(t) deal(t, exp(-t/m));
+
+laws(2).name = 'deterministic';
+laws(2).cv   = 0.00;
+laws(2).draw = @() m;
+laws(2).surv = @(t) deal([t(t < m), m, m], [ones(1, nnz(t < m)), 1, 1e-6]);
+
+cv    = 1.99;
+s2    = log(1 + cv^2);
+mu_ln = log(m) - s2/2;
+laws(3).name = 'lognormal';
+laws(3).cv   = cv;
+laws(3).draw = @() exp(mu_ln + sqrt(s2)*randn);
+laws(3).surv = @(t) deal(t, 0.5*erfc((log(t) - mu_ln)/sqrt(2*s2)));
+
+al = 1.21;
+b  = 179/7.9;
+mp = integral(@(x) x.*(al*x.^(-al-1))./(1 - b^(-al)), 1, b);
+laws(4).name = 'Pareto (censored)';
+laws(4).cv   = local_tp_cv(al, b);
+laws(4).draw = @() (m/mp)*local_tp(al, b);
+laws(4).surv = @(t) local_tp_surv(t, al, b, m/mp);
 end
 
-function pk = exactPeak(X, sig)
-%EXACTPEAK  Maximum over the scenter positions, plateau midpoint. Disconnected
-%   equal maxima, which occur for two scenters farther apart than sigma, are
-%   resolved by a fair draw, which the grid does through its discretization.
-[n, k] = size(X);
-pk = zeros(n, 1);  tol = 1e-9*k;
-for r = 1:n
-    xi = sort(X(r,:));
-    c = sum(max(0, 1 - abs(xi' - xi)/sig), 2)';
-    cm = max(c);
-    j = find(c >= cm - tol);
-    mids = [];  j1 = j(1);  j2 = j1;
-    for m = j(2:end)
-        xm = 0.5*(xi(j2) + xi(m));
-        if sum(max(0, 1 - abs(xm - xi)/sig)) >= cm - tol
-            j2 = m;
-        else
-            mids(end+1) = 0.5*(xi(j1) + xi(j2)); %#ok<AGROW>
-            j1 = m;  j2 = m;
-        end
-    end
-    mids(end+1) = 0.5*(xi(j1) + xi(j2)); %#ok<AGROW>
-    pk(r) = mids(randi(numel(mids)));
+function x = local_tp(al, b)
+u = rand;
+x = (1 - u*(1 - b^(-al)))^(-1/al);
 end
+
+function c = local_tp_cv(al, b)
+Z  = 1 - b^(-al);
+m1 = integral(@(x) x   .*(al*x.^(-al-1))/Z, 1, b);
+m2 = integral(@(x) x.^2.*(al*x.^(-al-1))/Z, 1, b);
+c  = sqrt(max(m2 - m1^2,0))/m1;
+end
+
+function [t, S] = local_tp_surv(t, al, b, sc)
+%LOCAL_TP_SURV  Survival of sc*Y with Y Pareto(alpha) on [1,b].
+y = t/sc;
+S = ones(size(y));
+in = y >= 1 & y < b;
+S(in) = (y(in).^(-al) - b^(-al))/(1 - b^(-al));
+S(y >= b) = 1e-6;
+k = find(y < b, 1, 'last');
+t = [t(1:k), sc*b, sc*b];  S = [S(1:k), (min(y(k),b)^(-al) - b^(-al))/(1 - b^(-al)), 1e-6];
 end

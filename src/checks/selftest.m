@@ -84,7 +84,7 @@ for p0 = [0.75 1.13 1.52]
     end
 end
 % Expect g1 = 1.552, 1.298, 1.159 at p0 = 0.75, 1.13, 1.52, matching the three
-% curves in Fig. 4(a).  The excess these carry against the ceiling,
+% curves in Fig. 3(a).  The excess these carry against the ceiling,
 % (g1-1)/(G(0)-1), is 0.227, 0.123 and 0.065, so one scenting bee supplies
 % between a fifteenth and a quarter of G(0) = 3.434.  Expect Fsub = 1.14, 2.59,
 % 4.68 and the naive column to capture 0%, 34.7%, 71.0% and 88.4% of the excess

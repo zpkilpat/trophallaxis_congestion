@@ -26,9 +26,9 @@ MATLAB R2023b or later. No toolboxes are needed. The figures are written with `e
 Clone the repository, `trophallaxis_congestion`, from https://github.com/zpkilpat/trophallaxis_congestion. Then start MATLAB in the repository root, since outputs are written to paths relative to it.
 
 ```matlab
-run_all                   % all ten article figures, then the regression checks
-figure4                   % a single figure
-figure4('fast', true)     % coarse grids and few realizations, a quick smoke test (figures 4 to 9; `figure10` reads the production two-donor table that `figure6` caches, so run `figure6` first)
+run_all                   % all nine article figures, then the regression checks
+figure3                   % a single figure
+figure3('fast', true)     % coarse grids and few realizations, a quick smoke test (figures 3 to 8; `figure9` reads the production two-donor table that `figure5` caches, so run `figure5` first)
 ```
 
 From a shell:
@@ -37,7 +37,7 @@ From a shell:
 matlab -batch "run_all"
 ```
 
-`figureN` draws Fig. N of the article. It writes the panels to `output/figureN/` and the lettered figure to `output/figs/figN.pdf`. Figs. 4 and 5 share the single-donor gain tables, and Figs. 6 and 7 share the two-donor arrival table; each is cached in the figure's own folder. `figure10` reads the two-donor table that `figure6` caches, and `run_all` runs them in order.
+`figureN` draws Fig. N of the article. It writes the panels to `output/figureN/` and the lettered figure to `output/figs/figN.pdf`. Figs. 3 and 4 share the single-donor gain tables, and Figs. 5 and 6 share the two-donor arrival table; each is cached in the figure's own folder. `figure9` reads the two-donor table that `figure5` caches, and `run_all` runs them in order.
 
 ## Figures
 
@@ -45,14 +45,13 @@ matlab -batch "run_all"
 | --- | --- | --- |
 | `figure1.m` | 1, main text | model schematic, search geometry, population flow, and the two abandonment regimes |
 | `figure2.m` | 2, main text | search for one donor: mean first-passage time, reliance, gain surface |
-| `figure3.m` | 3, main text | search for two donors: splitting probabilities, arrival rates, conditional times |
-| `figure4.m` | 4, main text | recruitment gain, feeding-time landscape, lingering boundary at one donor |
-| `figure5.m` | 5, main text | reduced model against simulation, crowd composition, optimal abandonment against fed fraction |
-| `figure6.m` | 6, main text | two competing donors: total benefit, cue contrast, optimal abandonment |
-| `figure7.m` | 7, main text | gain elasticity, reduction against simulation, stochastic symmetry at identical donors |
-| `figure8.m` | 8, appendix | search for one donor across parameters |
-| `figure9.m` | 9, appendix | the averaged recruitment gain and its limits |
-| `figure10.m` | 10, appendix | abandonment limits, reduction error, non-exponential service |
+| `figure3.m` | 3, main text | recruitment gain, feeding-time landscape, lingering boundary at one donor |
+| `figure4.m` | 4, main text | reduced model against simulation, crowd composition, optimal abandonment against fed fraction |
+| `figure5.m` | 5, main text | two competing donors: total benefit, cue contrast, optimal abandonment |
+| `figure6.m` | 6, main text | gain elasticity, reduction against simulation, stochastic symmetry at identical donors |
+| `figure7.m` | 7, appendix | search for one donor across parameters |
+| `figure8.m` | 8, appendix | the averaged recruitment gain and its limits |
+| `figure9.m` | 9, appendix | abandonment limits, reduction error, non-exponential service |
 
 Each figure file holds its panels as local functions (`panel_a`, `panel_b`, ...) below the driver.
 
@@ -60,21 +59,21 @@ Each figure file holds its panels as local functions (`panel_a`, `panel_b`, ...)
 
 Monte Carlo ensembles, gain tables, and parameter sweeps are cached as `.mat` files under `output/figureN/`. Each cache stores a key built from the parameters, the grids, and a tag, and a cache whose key does not match is rebuilt, so a cache can never silently feed a figure computed under other settings. Delete a cache file to force a rebuild.
 
-Caches are not tracked in this repository. The cached ensembles used for the published figures are available from Zenodo at DOI `10.5281/zenodo.XXXXXXX`. Unpack the archive in the repository root so that the files land in `output/figure1/` to `output/figure7/` (and `output/linger_tables_cache.mat`, used by `selftest`).
+Caches are not tracked in this repository. The cached ensembles used for the published figures are available from Zenodo at DOI `10.5281/zenodo.XXXXXXX`. Unpack the archive in the repository root so that the files land in `output/figure1/` to `output/figure9/` (and `output/linger_tables_cache.mat`, used by `selftest`).
 
 | | runtime |
 | --- | --- |
 | `run_all` with the Zenodo caches | about 10 minutes |
 | `run_all` from scratch | roughly 2 to 3 hours |
 
-Times are for MATLAB R2023b on a laptop with an 8-core Intel Core i9. Most of a rebuild goes to the individual-based ensembles of Figures 3, 4, and 7. Random streams are seeded per realization, so a rebuild reproduces the cached ensembles.
+Times are for MATLAB R2023b on a laptop with an 8-core Intel Core i9. Most of a rebuild goes to the individual-based ensembles of Figs. 4, 6, and 9. Random streams are seeded per realization, so a rebuild reproduces the cached ensembles.
 
 ## Repository layout
 
 ```
 .
 ├── run_all.m               regenerate every figure, then run selftest
-├── figure1.m ... figure7.m one file per figure, panels as local functions
+├── figure1.m ... figure9.m one file per figure, panels as local functions
 ├── src/
 │   ├── model/              search, gain, reduced dynamics, individual-based models
 │   │   ├── afpt.m          exact first passage on the ring with a displaced tent cue
@@ -89,7 +88,7 @@ Times are for MATLAB R2023b on a laptop with an 8-core Intel Core i9. Most of a 
 │   ├── plotting/           figure style, export, assembly, schematic glyphs
 │   └── checks/             selftest and the printed checks quoted in the text
 ├── output/
-│   ├── figs/               the article's figures fig1 to fig10 (PDF)
+│   ├── figs/               the article's figures fig1 to fig9 (PDF)
 │   └── figureN/            panel exports and caches (not tracked)
 ├── LICENSE
 └── README.md

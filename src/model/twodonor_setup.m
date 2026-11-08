@@ -1,5 +1,5 @@
 function S = twodonor_setup(outdir, fast, tag, needSingle)
-%TWODONOR_SETUP  Two-donor arrival table and sweep shared by Figs. 6 and 7.
+%TWODONOR_SETUP  Two-donor arrival table and sweep shared by Figs. 5 and 6.
 %   S = TWODONOR_SETUP(outdir, fast, tag, needSingle) builds or loads the exact
 %   two-donor arrival table G2, caches it in outdir as [tag '_twogain_cache.mat']
 %   behind a key that includes every grid and model quantity, and sweeps the

@@ -1,402 +1,651 @@
 function out = figure8(varargin)
-%FIGURE5 Reproduce Figure 8 (search for one donor across parameters).
+%FIGURE6 Reproduce the three panels of Figure 8 (the averaged recruitment gain)
+%   and assemble the lettered figure.
 %
 % Usage
 %   figure8
-%   figure8('fast',true)                  % coarse grids, same parameters
+%   figure8('fast',true)                  % coarse grids, wiring check
 %   figure8('outdir','output/figure8')
 %
 % Panel map
-%   (a) fig5a   attainable gain G(p) over cue offset and donor absorptivity,
-%               with the critical offset p*(kbar) and the support bound
-%   (b) fig5b   critical offset and gain ceiling against absorptivity at
-%               beta0 = 1 and 0.5
-%   (c) fig5c   conditional discovery times at two uncued donors of unequal
-%               absorptivity, arc solution and Monte Carlo
+%   (a) fig6b  first-scenter value g_1 against p_0 with its two-sided bound
+%   (b) fig6c  gain elasticity with its small- and large-Fbar asymptotes
+%   (c) fig6d  variance ratio of the aggregate plume peak against scenter count
+%   Panel files keep their stems. The averaged-gain surface that was a fourth
+%   panel duplicates the slices drawn in Figure 3(a) of the article and is retired.
 %
-% One gainTable per absorptivity feeds (a) and the beta0 = 1 arm of (b). The
-% beta0 = 0.5 arm needs only p* and G(0), so it runs on a three-point offset
-% grid, which leaves both unchanged since p* is bisected on [0,1.2] and G(0)
-% is the p = 0 node. Both sweeps are cached behind stamped keys.
+% The gain surface is extended past the cue support to p = 3, so the Gaussian
+% average at large p_0 samples the flat far field before offsets are clamped
+% to max(W.p). The representative-parameter tables on [0, 1.2] come
+% from the representative-parameter cache in outdir. The extension and the
+% kbar = 0.8 surface are cached here behind a stamp.
+%
+% Every a_k is the Gaussian smoothing of W at spread p_0/sqrt(k), on the
+% quadrature grid psiTable uses. The averaged gain and its derivative come from
+% mixGain, which takes the derivative by the envelope theorem.
+%
+% Panel (d) draws on its own peak ensemble, cached in outdir under a stamped
+% key. A fast run writes its panels and caches to outdir/fast so a production
+% cache is never replaced. The lettered figure is written to output/figs/fig8 (Fig. 8 of the article).
 
 addpath(genpath(fullfile(fileparts(mfilename('fullpath')), 'src')));
 
 ip = inputParser;
 addParameter(ip,'fast',false);
 addParameter(ip,'outdir',fullfile('output','figure8'));
-addParameter(ip,'figstem',fullfile('output','figs','fig8'));
+addParameter(ip,'figdir',fullfile('output','figs'));
 parse(ip,varargin{:});
 fast   = logical(ip.Results.fast);
 OUTDIR = ip.Results.outdir;
+FIGDIR = ip.Results.figdir;
+if fast, OUTDIR = fullfile(OUTDIR, 'fast');  FIGDIR = OUTDIR; end
 if ~isfolder(OUTDIR), mkdir(OUTDIR); end
-figdir = fileparts(ip.Results.figstem);
-if ~isempty(figdir) && ~isfolder(figdir), mkdir(figdir); end
+if ~isfolder(FIGDIR), mkdir(FIGDIR); end
 close all
 
-VER = 'fig5-sweep-v1';
-A = afpt();  M = lingermodel();  P = linger_style();
-prm0 = A.mkprm('kbar',0.0314,'sig',0.8,'beta0',1,'sm',1,'v',1);
+VER    = 'v7-averaged-gain';
+P0LIST = [0.75 1.13 1.52];
+KBARS  = [0.0314 0.8];
 
-% 0.0314 and 0.8 are forced nodes so the quoted values are not interpolated.
+A = afpt();
+M = lingermodel();
+P = linger_style();
+prm = A.mkprm('kbar',0.0314,'sig',0.8,'beta0',1,'sm',1,'v',1);
+cfg = M.mkcfg('N',120,'mu',1,'lam0',prm.lam0,'p0',0.75);
+fprintf('figure8: lambda0 = %.5f, rho = %.3f, gmax = %.4f\n', ...
+        prm.lam0, prm.lam0*cfg.N/cfg.mu, prm.gmax);
+
+% Grids are part of both cache keys, so fix them before stamping.
 if fast
-    kbars = unique([logspace(log10(0.025), log10(0.8), 5), 0.0314, 0.8]);
-    pgrid = linspace(0, 1.2, 13);
+    pbase = linspace(0,1.2,31);  pext = 1.4:0.2:3.0;  ggrid = linspace(0,prm.gmax,25);
+    Fb  = logspace(-1, log10(50), 60);
+    p0B = logspace(log10(0.3), log10(5), 16);
 else
-    kbars = unique([logspace(log10(0.025), log10(0.8), 11), 0.0314, 0.8]);
-    pgrid = linspace(0, 1.2, 25);
+    pbase = linspace(0,1.2,61);  pext = 1.25:0.05:3.0; ggrid = linspace(0,prm.gmax,51);
+    Fb  = logspace(-1, log10(50), 160);
+    p0B = logspace(log10(0.3), log10(5), 48);
 end
-pgridB = [0 0.6 1.2];
-beta0s = [1.0 0.5];
+pgrid = [pbase pext];
 
-S1 = cachedSweep(A, M, prm0, kbars, beta0s(1), pgrid,  VER, ...
-                 fullfile(OUTDIR,'figure8_sweep_b1.mat'));
-S2 = cachedSweep(A, M, prm0, kbars, beta0s(2), pgridB, VER, ...
-                 fullfile(OUTDIR,'figure8_sweep_b05.mat'));
-
-% Reference values at the representative parameters, as warnings.
-iop = find(abs(S1.kbars - prm0.kbar) < 1e-12, 1);
-if abs(S1.pstar(iop)/prm0.sig - 0.878) > 5e-3 || abs(S1.G0(iop) - 3.434) > 5e-3
-    warning('figure8:reference', 'p*/sigma = %.4f and G(0) = %.4f, references 0.878 and 3.434', ...
-            S1.pstar(iop)/prm0.sig, S1.G0(iop));
-end
-
-F5a = panel_a(S1, P, prm0, OUTDIR);
-F5b = panel_b(S1, S2, P, prm0, OUTDIR);
-F5c = panel_c(prm0, P, OUTDIR);
-
-% ---- numbers a caption quotes -------------------------------------------
-fprintf('\nFigure 8 caption numbers\n');
-for S = [S1 S2]
-    for kq = [0.0314 0.8]
-        [~, i] = min(abs(S.kbars - kq));
-        fprintf('  beta0 = %.2f, kbar = %.4g:  p*/sigma = %.3f,  G(0) = %.3f,  pcap/sigma = %.3f\n', ...
-            S.beta0, S.kbars(i), S.pstar(i)/prm0.sig, S.G0(i), S.pcap(i)/prm0.sig);
+% ---- representative-parameter tables on [0, 1.2] ---------------------------------
+opfile = fullfile(OUTDIR,'opgain_cache.mat');
+keyS = M.stamp('vS1-si-panels', prm, cfg, pbase, ggrid);
+G = [];  Wb = [];
+if isfile(opfile)
+    S = load(opfile);
+    if isfield(S,'key') && strcmp(S.key,keyS)
+        G = S.G;  Wb = S.W;
+        fprintf('figure8: loaded representative-parameter tables from cache\n');
     end
-    fprintf('  beta0 = %.2f over kbar in [%.3g, %.3g]:  p*/sigma %.3f to %.3f,  G(0) %.3f to %.3f\n', ...
-        S.beta0, min(S.kbars), max(S.kbars), min(S.pstar)/prm0.sig, ...
-        max(S.pstar)/prm0.sig, min(S.G0), max(S.G0));
 end
-fprintf('  G(p) maximum on the (a) grid %.3f, at p = 0 and kbar = %.4g\n', ...
-    max(S1.G(:)), S1.kbars(find(max(S1.G,[],2) == max(S1.G(:)), 1)));
+if isempty(G)
+    fprintf('figure8: building representative-parameter tables on %d x %d\n', numel(pbase), numel(ggrid));
+    G  = M.gainTable(prm, pbase);
+    Wb = M.gainSurface(prm, pbase, ggrid);
+end
 
-fprintf('  bounded-law transit penalty is at most exp(2 beta0 p/v) = %.2f at p = 0.75\n', ...
-    exp(2*prm0.beta0*0.75/prm0.v));
+% ---- extended surfaces, both absorptivities -----------------------------
+cachefile = fullfile(OUTDIR,'figure8_gain_cache.mat');
+key = M.stamp(VER, prm, cfg, pbase, pext, ggrid, KBARS);
+T = [];
+if isfile(cachefile)
+    S = load(cachefile);
+    if isfield(S,'key') && strcmp(S.key,key)
+        T = S.T;
+        fprintf('figure8: loaded stamped surface cache (%d x %d)\n', numel(pgrid), numel(ggrid));
+    end
+end
+if isempty(T)
+    T = struct('kbar',KBARS,'W',{cell(1,2)},'G',{cell(1,2)},'D0',{cell(1,2)}, ...
+               'pgrid',pgrid,'ggrid',ggrid);
+    dg = prm.gmax/500;
+    for ik = 1:numel(KBARS)
+        pk = A.mkprm('kbar',KBARS(ik),'sig',prm.sig,'beta0',prm.beta0,'sm',prm.sm,'v',prm.v);
+        fprintf('figure8: kbar = %.4g, surface on %d x %d\n', KBARS(ik), numel(pgrid), numel(ggrid));
+        if ik == 1
+            Gk = G;  Wk = Wb;
+        else
+            Gk = M.gainTable(pk, pbase);
+            Wk = M.gainSurface(pk, pbase, ggrid);
+        end
+        We = M.gainSurface(pk, pext, ggrid);
+        if abs(We.T0 - Wk.T0) > 1e-8*Wk.T0
+            warning('figure8:T0mismatch', 'unaided MFPT differs between surface pieces');
+        end
+        Wk.p = pgrid;  Wk.G = [Wk.G We.G];
+        % dW/dgamma at gamma = 0, one-sided second order.
+        Wd = M.gainSurface(pk, pgrid, [0 dg 2*dg]);
+        T.D0{ik} = (-3*Wd.G(1,:) + 4*Wd.G(2,:) - Wd.G(3,:))/(2*dg);
+        T.W{ik} = Wk;  T.G{ik} = Gk;
+    end
+    % One-sided slope of W at the ceiling at the peak. W has a cusp at p = 0.
+    h1 = 1e-4;
+    T.c1 = (T.W{1}.T0/A.moments(0, prm.sig, prm.beta0, prm.gmax, prm.sm, prm.theta, prm.v) - ...
+            T.W{1}.T0/A.moments(h1, prm.sig, prm.beta0, prm.gmax, prm.sm, prm.theta, prm.v))/h1;
+    save(cachefile,'T','key');
+end
 
-% ---- assembly ------------------------------------------------------------
-% One row of three at full textwidth, like Figures 2-4, at the default letter size.
-panels = fullfile(OUTDIR, {'fig5a.fig','fig5b.fig','fig5c.fig'});
-tiles  = [0 0 22 19; 22 0 22 19; 44 0 22 19];
-assemble_figure(ip.Results.figstem, panels, tiles, [66 19]);
+W = T.W{1};
+psList = arrayfun(@(p0) M.psiTable(G, p0, W), P0LIST, 'uni', 0);
+G0 = max(W.G(:,1));
+fprintf('figure8 checks: p*/sigma = %.3f, G(0) = %.3f, g1 =', G.pstar/prm.sig, G0);
+fprintf(' %.3f', cellfun(@(s) s.g1, psList));
+fprintf(', F_sub ='); fprintf(' %.2f', cellfun(@(s) s.Fsub, psList)); fprintf('\n');
+if abs(G0 - 3.434) > 5e-3
+    warning('figure8:G0Moved', 'G(0) = %.4f differs from the reference 3.434', G0);
+end
+if any(abs(cellfun(@(s) s.g1, psList) - [1.552 1.298 1.159]) > 8e-3)
+    warning('figure8:g1Moved', 'g_1 differs from the reference 1.552 / 1.298 / 1.159');
+end
+if any(abs(cellfun(@(s) s.Fsub, psList) - [1.14 2.59 4.68]) > 1e-2)
+    warning('figure8:FsubMoved', 'F_sub differs from the reference 1.14 / 2.59 / 4.68');
+end
 
-out = struct('S1',S1,'S2',S2,'F5a',F5a,'F5b',F5b,'F5c',F5c);
+Q = struct('ak', @akTable, 'akv', @akTableV, 'mix', @mixGain, 'G0', G0, 'p0list', P0LIST, ...
+           'prm', prm, 'psList', {psList});
+
+out = struct('T',T,'G',G,'psList',{psList});
+out.b = panel_a(Q, T, P, OUTDIR, p0B);
+if fast
+    out.d = panel_c(prm, cfg.p0, OUTDIR, [1 2 3 5 10 20 30], 4000, 5e-3, 40000);
+else
+    out.d = panel_c(prm, cfg.p0, OUTDIR);
+end
+Q.vk = struct('k', out.d.k, 'ratio', out.d.ratio, 'vinf', out.d.vinf);   % measured k Var(peak)/p0^2 of the summed tents
+out.c = panel_b(Q, T, P, OUTDIR, Fb);
 save(fullfile(OUTDIR,'figure8_results.mat'),'-struct','out');
-fprintf('Figure 8 of the article (driver figure8) complete. Panel order: fig5a, fig5b, fig5c.\n');
-if nargout == 0, clear out; end
+
+% One row of three at the panel canvas size, 66 cm, included at full textwidth
+% like the other wide figures.
+names  = {'fig6b','fig6c','fig6d'};
+panels = cellfun(@(n) fullfile(OUTDIR,[n '.fig']), names, 'uni', 0);
+tiles  = [0 0 22 19; 22 0 22 19; 44 0 22 19];
+assemble_figure(fullfile(FIGDIR,'fig8'), panels, tiles, [66 19]);
+fprintf('figure8 complete. Assembled figure written to %s\n', fullfile(FIGDIR,'fig8'));
 end
 
 % ------------------------------------------------------------------------
-function S = cachedSweep(A, M, prm0, kbars, beta0, pgrid, ver, cachefile)
-key = M.stamp(ver, struct('sig',prm0.sig,'sm',prm0.sm,'v',prm0.v, ...
-              'beta0',beta0), kbars, pgrid);
-if isfile(cachefile)
-    C = load(cachefile);
-    if isfield(C,'key') && strcmp(C.key, key)
-        S = C.S;
-        fprintf('figure8: loaded stamped sweep, beta0 = %.2f\n', beta0);
-        return
-    end
+function rk = akTable(p, Gm, p0, K)
+%AKTABLE  a_k for k = 1..K, the smoothing of each row of Gm (rows gamma,
+%   columns p) by N(0, p0^2/k), offsets clamped to max(p) as in psiTable.
+z  = linspace(-6, 6, 1201).';
+w  = exp(-z.^2/2);  w = w/trapz(z, w);
+Gt = Gm.';
+pmax = max(p);
+rk = zeros(size(Gm,1), K);
+for k = 1:K
+    pp = min(abs(z*p0/sqrt(k)), pmax);
+    rk(:,k) = trapz(z, w.*interp1(p(:), Gt, pp), 1).';
 end
-S = sweep(A, M, prm0, kbars, beta0, pgrid);
-save(cachefile, 'S', 'key');
 end
 
-function S = sweep(A, M, prm0, kbars, beta0, pgrid)
-% One gainTable per absorptivity. A point whose arc solve raised a
-% singular-matrix warning, or whose p* exceeds the support bound, is dropped
-% and reported.
-nk = numel(kbars);  np = numel(pgrid);
-S = struct('beta0',beta0,'kbars',kbars,'pgrid',pgrid, ...
-           'G',nan(nk,np),'Graw',nan(nk,np),'gam',nan(nk,np), ...
-           'atcap',false(nk,np),'pstar',nan(1,nk),'pcap',nan(1,nk), ...
-           'G0',nan(1,nk),'illcond',false(1,nk),'oversup',false(1,nk));
-SING = {'MATLAB:singularMatrix','MATLAB:nearlySingularMatrix', ...
-        'MATLAB:illConditionedMatrix'};
-ws = warning;
-cleanup = onCleanup(@() warning(ws));
-for k = 1:numel(SING), warning('off', SING{k}); end
-t0 = tic;
+% ------------------------------------------------------------------------
+function rk = akTableV(p, Gm, p0, K, kk, rr, vinf)
+%AKTABLEV  As akTable, but with the peak variance of a literal sum of tents.
+%   The scaled variance rr at the simulated counts kk is interpolated in k and
+%   held at its last value beyond them, so only F with Poisson mass
+%   mostly below k = kk(end) should be read, so the peak spread is p0 sqrt(r(k)/k).
+z  = linspace(-6, 6, 1201).';
+w  = exp(-z.^2/2);  w = w/trapz(z, w);
+Gt = Gm.';
+pmax = max(p);
+r = interp1(kk, rr, 1:K, 'pchip', rr(end));   % measured counts only; held beyond k = kk(end)
+rk = zeros(size(Gm,1), K);
+for k = 1:K
+    pp = min(abs(z*p0*sqrt(r(k)/k)), pmax);
+    rk(:,k) = trapz(z, w.*interp1(p(:), Gt, pp), 1).';
+end
+end
+
+% ------------------------------------------------------------------------
+function [vals, jsel, dG] = mixGain(rk, F)
+%MIXGAIN  Gtilde(F) = max_gamma [e^-F + sum_k pi_k a_k], the selected row, and
+%   Gtilde'(F) = sum_{k>=0} pi_k (a_{k+1} - a_k) at that row, a_0 = 1. At F = 0
+%   the maximizer is the whole interval and the right derivative is g_1 - 1.
+K  = size(rk,2);  ks = 1:K;
+inc = [rk(:,1) - 1, diff(rk,1,2)];        % a_{k+1} - a_k for k = 0..K-1
+vals = ones(size(F));  jsel = ones(size(F));  dG = zeros(size(F));
+for i = 1:numel(F)
+    f = F(i);
+    if f <= 0
+        [g1, j] = max(rk(:,1));  jsel(i) = j;  dG(i) = g1 - 1;
+        continue
+    end
+    pk = exp(-f + ks*log(f) - gammaln(ks+1));
+    [vals(i), j] = max(exp(-f) + rk*pk(:));
+    jsel(i) = j;
+    dG(i) = [exp(-f), pk(1:K-1)]*inc(j,:).';
+end
+end
+
+% =========================================================================
+% Panel (a), fig6b. Value of the first scenter.
+% =========================================================================
+function out = panel_a(Q, T, P, outdir, p0s)
+%PANEL_A  Value of the first scenter, g_1, against the single-scenter
+%   offset p_0, with the two-sided bound. Panel (a),
+%   with in-panel labels.
+%
+%       g_1(p_0) = max_gamma  Int W(gamma,|p|) N(p; 0, p_0^2) dp
+%
+%       1 - (1 - Wmin)(1 - Phi*)  <=  a_1(gamma)  <=  1 + (G(0) - 1) Phi*,
+%       Phi* = 2 Phi(p*/p_0) - 1
+%
+%   Solid is kbar = 0.0314, dashed kbar = 0.8. The crossing where g_1 returns
+%   to one is bisected on the reliance derivative of a_1 at gamma = 0,
+%   s(p_0) = Int dW/dgamma|_0 N(p; 0, p_0^2) dp.
+
+nk = numel(T.kbar);  npo = numel(p0s);
+g1 = nan(nk,npo);  gstar = nan(nk,npo);  ub = g1;  lb = g1;
+p0crit = nan(nk,1);  p0need = nan(nk,1);  pstars = nan(nk,1);
+G0s = nan(nk,1);  Wmins = nan(nk,1);  g1ref = nan(nk,3);
+
+z = linspace(-6,6,1201);
+w = exp(-z.^2/2);  w = w/trapz(z,w);
 for ik = 1:nk
-    prm = A.mkprm('kbar',kbars(ik),'sig',prm0.sig,'beta0',beta0, ...
-                  'sm',prm0.sm,'v',prm0.v);
-    lastwarn('');
-    G = M.gainTable(prm, pgrid);
-    [~, wid] = lastwarn;
-    S.illcond(ik) = any(strcmp(wid, SING));
-    S.oversup(ik) = G.pstar > prm0.sm*prm0.sig*(1 + 1e-9);
-    if S.illcond(ik) || S.oversup(ik), continue, end
-    S.G(ik,:) = G.G;  S.Graw(ik,:) = G.Graw;  S.gam(ik,:) = G.gam;
-    S.atcap(ik,:) = G.atcap;
-    S.pstar(ik) = G.pstar;  S.pcap(ik) = G.pcap;  S.G0(ik) = G.Graw(1);
+    Wk = T.W{ik};  pmax = max(Wk.p);
+    Wmins(ik)  = min(Wk.G(:));
+    G0s(ik)    = max(Wk.G(:,1));
+    pstars(ik) = T.G{ik}.pstar;
+    for j = 1:npo
+        a1 = Q.ak(Wk.p, Wk.G, p0s(j), 1);
+        [g1(ik,j), imax] = max(a1);
+        gstar(ik,j) = Wk.gam(imax);
+        Phi = erf(pstars(ik)/p0s(j)/sqrt(2));
+        ub(ik,j) = 1 + (G0s(ik) - 1)*Phi;
+        lb(ik,j) = 1 - (1 - Wmins(ik))*(1 - Phi);
+    end
+    g1ref(ik,:) = arrayfun(@(q) max(Q.ak(Wk.p, Wk.G, q, 1)), Q.p0list);
+
+    sfun = @(qq) trapz(z, w.*interp1(Wk.p, T.D0{ik}, min(abs(z*qq), pmax), 'linear'));
+    plo = min(p0s);  phi = max(p0s);
+    if sfun(plo) > 0 && sfun(phi) <= 0
+        for it = 1:60
+            pm = 0.5*(plo + phi);
+            if sfun(pm) > 0, plo = pm; else, phi = pm; end
+            if phi - plo < 1e-8*phi, break, end
+        end
+        p0crit(ik) = 0.5*(plo + phi);
+    else
+        warning('fig6b:noCrossing', 'at kbar = %.4g the crossing is not bracketed by the sweep', T.kbar(ik));
+    end
+    Phineed = (1 - Wmins(ik))/(G0s(ik) - Wmins(ik));
+    p0need(ik) = pstars(ik)/max(sqrt(2)*erfinv(Phineed), eps);
+    fprintf(['fig6b: kbar = %.4g, G(0) = %.3f, Wmin = %.3f, p* = %.4f, ' ...
+             'g_1 returns to 1 at p_0 = %.3f (%.2f sigma), necessary bound %.2f\n'], ...
+            T.kbar(ik), G0s(ik), Wmins(ik), pstars(ik), p0crit(ik), ...
+            p0crit(ik)/Q.prm.sig, p0need(ik));
+    fprintf('fig6b: kbar = %.4g, g_1 at p0 = 0.75, 1.13, 1.52: %.4f %.4f %.4f\n', ...
+            T.kbar(ik), g1ref(ik,:));
 end
-nbad = nnz(S.illcond | S.oversup);
-fprintf('figure8: beta0 = %.2f sweep, %d absorptivities x %d offsets, %.0f s, %d dropped\n', ...
-        beta0, nk, np, toc(t0), nbad);
-end
-
-% =========================================================================
-% Panel (a), fig5a. Attainable gain over offset and absorptivity.
-% =========================================================================
-function out = panel_a(S, P, prm0, outdir)
-%PANEL_A  Attainable gain G(p) over cue offset and donor absorptivity.
-%   Panel (a). S is the beta0 = 1 sweep of figure5. The solid curve is the
-%   critical offset p*(kbar), bisected in gainTable rather than read off the
-%   grid. The dashed line is the support bound p = sigma, and the dotted line
-%   and marker are the representative parameters. Dotted contours are levels of G. The
-%   dash-dotted curve is pcap, below which the optimal reliance sits on the
-%   ceiling gamma = s_m sigma.
-
-ok  = ~(S.illcond | S.oversup);
-kb  = S.kbars(ok);
-Gm  = S.G(ok,:);
-xs  = S.pgrid/prm0.sig;
-ps  = S.pstar(ok)/prm0.sig;
-kop = prm0.kbar;
-
-% p* is smooth in log kbar, so a pchip through the nodes draws it.
-kf  = logspace(log10(min(kb)), log10(max(kb)), 200);
-psf = pchip(log(kb), ps, log(kf));
-psop = interp1(kb, ps, kop);
-pc   = S.pcap(ok)/prm0.sig;
-pcf  = pchip(log(kb), pc, log(kf));
-
-h = P.figure(P);  ax = gca;
-hs = pcolor(ax, xs, kb, Gm);  set(hs,'EdgeColor','none');
-shading(ax,'interp');  colormap(ax, P.plasma(256));
-clim(ax, [1, ceil(10*max(Gm(:)))/10]);
-set(ax,'YScale','log');
-cb = P.cbar(P, 'attainable gain $G(p)$');
-hold(ax,'on');
-
-[Cc, hc] = contour(ax, xs, kb, Gm, [1.5 2 2.5 3], 'k:', 'LineWidth', P.ALW);
-clabel(Cc, hc, 'FontSize', P.FSZ-6, 'Interpreter','latex', 'LabelSpacing', 1e4);
-
-% Round limits, so the end ticks survive a logspace node that misses 0.025 by rounding.
-yl = [0.025 0.8];
-plot(ax, [1 1], yl, '--', 'Color','w', 'LineWidth', P.ALW+0.5);
-plot(ax, [0 max(xs)], [kop kop], ':', 'Color','w', 'LineWidth', P.ALW+0.5);
-plot(ax, pcf, kf, '-.', 'Color','w', 'LineWidth', P.ALW+0.5);
-plot(ax, psf, kf, '-', 'Color','w', 'LineWidth', P.LW+2.4);
-plot(ax, psf, kf, '-', 'Color',[0.10 0.10 0.10], 'LineWidth', P.LW);
-plot(ax, psop, kop, 'o', 'MarkerSize', 14, 'MarkerFaceColor','w', ...
-     'MarkerEdgeColor',[0.10 0.10 0.10], 'LineWidth', P.ALW);
-
-P.label(P, ax, 1.03, 0.36, 'support bound', 'Color','w', 'Rotation', 90, ...
-        'HorizontalAlignment','center', 'VerticalAlignment','top');
-P.label(P, ax, 0.5*(interp1(kf, psf, 0.3) + interp1(kf, pcf, 0.3)), 0.3, ...
-        '$p^\ast(\overline\kappa)$', 'Color','w', 'Rotation', 90, ...
-        'HorizontalAlignment','center', 'VerticalAlignment','middle');
-P.label(P, ax, interp1(kf, pcf, 0.07) - 0.02, 0.07, '$\gamma^\ast=s_m\sigma$', 'Color','w', ...
-        'Rotation', 90, 'HorizontalAlignment','center', 'VerticalAlignment','bottom');
-P.label(P, ax, 0.04, kop*1.06, 'representative', 'Color','w', ...
-        'HorizontalAlignment','left', 'VerticalAlignment','bottom');
-
-xlim(ax, [0 max(xs)]);  ylim(ax, yl);
-set(ax, 'YTick', [0.025 0.05 0.1 0.2 0.4 0.8], ...
-        'YTickLabel', {'0.025','0.05','0.1','0.2','0.4','0.8'}, ...
-        'XTick', 0:0.25:1.5);
-xlabel(ax, 'cue offset $p/\sigma$', 'Interpreter','latex', 'FontSize', P.LSZ);
-ylabel(ax, 'donor absorptivity $\overline\kappa$', 'Interpreter','latex', 'FontSize', P.LSZ);
-P.axes(P, ax);
-set(ax, 'Position', [0.17 0.16 0.62 0.80]);  cb.Position = [0.81 0.16 0.035 0.80];
-
-P.export(P, 'fig5a', outdir, h);
-
-out = struct('kbars',kb,'poff',xs,'G',Gm,'pstar_norm',ps,'pstar_op',psop,'pcap_norm',pc, ...
-             'Gmax',max(Gm(:)));
-fprintf('fig5a: G spans %.3f to %.3f; p*/sigma at the representative parameters %.3f\n', ...
-        min(Gm(:)), max(Gm(:)), psop);
+if any(g1(:) > ub(:) + 1e-6) || any(g1(:) < lb(:) - 1e-6)
+    warning('fig6b:outsideBracket', 'g_1 fell outside the two-sided bound somewhere');
 end
 
-% =========================================================================
-% Panel (b), fig5b. Critical offset and gain ceiling.
-% =========================================================================
-function out = panel_b(S1, S2, P, prm0, outdir)
-%PANEL_B  Critical offset p* and gain ceiling G(0) against absorptivity.
-%   Panel (b). S1 and S2 are the figure5 sweeps at beta0 = 1 and 0.5.
-%   Green on the left axis is p*/sigma, blue on the right axis is G(0). Solid
-%   is beta0 = 1, dashed is beta0 = 0.5. Curves are labeled in place. The
-%   dotted horizontal line is the support bound and the dotted vertical line
-%   the representative parameters, where the beta0 = 1 values are marked.
-
-SS   = [S1 S2];
-sty  = {'-','--'};
-gcol = [P.greens(6,:); P.greens(4,:)];
-bcol = [P.blues(3,:);  P.blues(2,:)];
-kop  = prm0.kbar;
-kl   = [0.025 0.8];
-lgt  = [0.45 0.45 0.45];
-
-% Two overlaid axes rather than yyaxis, since assemble_figure copies axes
-% objects and yyaxis axes cannot be copied.
-POS = [0.17 0.16 0.64 0.80];
-h = P.figure(P);
+% ---- panel --------------------------------------------------------------
+h  = P.figure(P);
 ax = axes('Parent',h);  hold(ax,'on');
+cols = [P.greens(6,:); P.blues(3,:)];
+for ik = 1:nk
+    fill(ax, [p0s fliplr(p0s)], [lb(ik,:) fliplr(ub(ik,:))], cols(ik,:), ...
+         'FaceAlpha', 0.09, 'EdgeColor','none');
+end
+yline(ax, 1, '-', 'Color', [0.82 0.84 0.86], 'LineWidth', P.ALW);
+for ik = 1:nk
+    plot(ax, p0s, g1(ik,:), P.p0sty{ik}, 'Color', cols(ik,:), 'LineWidth', P.LW);
+    if ~isnan(p0crit(ik))
+        plot(ax, p0crit(ik), 1, 'o', 'Color', cols(ik,:), 'MarkerFaceColor','w', ...
+             'MarkerSize', 13, 'LineWidth', P.ALW);
+    end
+end
+g1op = g1ref(1,1);
+plot(ax, 0.75, g1op, 'v', 'Color', cols(1,:), 'MarkerFaceColor', cols(1,:), 'MarkerSize', 15);
+for i = 2:3
+    plot(ax, Q.p0list(i), g1ref(1,i), 'o', 'MarkerSize', 7, ...
+         'MarkerFaceColor', P.p0cols(i,:), 'MarkerEdgeColor','none');
+end
 set(ax,'XScale','log');
+xlim(ax, [min(p0s) max(p0s)]);
+ylim(ax, [0.5 max(ub(:))*1.02]);
+set(ax, 'XTick', [0.3 0.5 1 2 5]);
 
-% ---- left axis, critical offset ------------------------------------------
-YL = [0.50 1.02];
-plot(ax, kl, [1 1], ':', 'Color', lgt, 'LineWidth', P.ALW);
-for ib = 1:2
-    S = SS(ib);  ok = ~(S.illcond | S.oversup);
-    plot(ax, S.kbars(ok), S.pstar(ok)/prm0.sig, sty{ib}, 'Color', gcol(ib,:), 'LineWidth', P.LW);
-end
-ps1 = interp1(S1.kbars, S1.pstar/prm0.sig, kop);
-plot(ax, kop, ps1, 'o', 'MarkerSize', 12, 'MarkerFaceColor','w', ...
-     'MarkerEdgeColor', gcol(1,:), 'LineWidth', P.ALW);
-ylim(ax, YL);
-set(ax, 'YColor', gcol(1,:), 'YTick', 0.5:0.1:1);
-ylabel(ax, 'critical offset $p^\ast/\sigma$', 'Interpreter','latex', 'FontSize', P.LSZ);
+fs = P.FSZ - 2;
+text(ax, 0.8, 1.78, 'representative', 'Interpreter','latex', 'FontSize', fs, ...
+     'Color', cols(1,:), 'HorizontalAlignment','left');
+text(ax, 0.32, 3.12, 'two-sided bound', 'Interpreter','latex', 'FontSize', fs, ...
+     'Color', P.grey, 'HorizontalAlignment','left');
+text(ax, 0.32, 2.52, '$\overline\kappa=0.0314$', 'Interpreter','latex', ...
+     'FontSize', fs, 'Color', cols(1,:));
+text(ax, 0.32, 1.45, '$\overline\kappa=0.8$', 'Interpreter','latex', ...
+     'FontSize', fs, 'Color', cols(2,:));
+text(ax, p0crit(1), 0.9, {'$g_1$ returns', 'to one'}, 'Interpreter','latex', ...
+     'FontSize', fs, 'Color', 'k', 'HorizontalAlignment','center', 'VerticalAlignment','top');
 
-P.label(P, ax, 0.037, 0.993, 'support bound $p^\ast=\sigma$', 'Color', lgt, ...
-        'VerticalAlignment','top');
-P.label(P, ax, 0.2, curveAt(S1, 0.2, prm0) + 0.012, '$p^\ast/\sigma$, $\beta_0=1$', ...
-        'Color', gcol(1,:), 'HorizontalAlignment','right', 'VerticalAlignment','bottom');
-P.label(P, ax, 0.3, curveAt(S2, 0.3, prm0) - 0.012, '$\beta_0=0.5$', ...
-        'Color', gcol(2,:), 'HorizontalAlignment','left', 'VerticalAlignment','top');
-
-% ---- right axis, gain ceiling --------------------------------------------
-axL = ax;
-xline(axL, kop, ':', 'Color', lgt, 'LineWidth', P.ALW);
-xlim(axL, kl);
-set(axL, 'XTick', [0.05 0.1 0.2 0.4 0.8], ...
-         'XTickLabel', {'0.05','0.1','0.2','0.4','0.8'}, 'XTickLabelRotation', 0);
-xlabel(axL, 'donor absorptivity $\overline\kappa$', 'Interpreter','latex', 'FontSize', P.LSZ);
-P.axes(P, axL);
-set(axL, 'Position', POS);
-
-ax = axes('Parent',h);  hold(ax,'on');
-set(ax, 'XScale','log', 'Color','none', 'YAxisLocation','right', ...
-        'XColor','none', 'XTick',[]);
-for ib = 1:2
-    S = SS(ib);  ok = ~(S.illcond | S.oversup);
-    plot(ax, S.kbars(ok), S.G0(ok), sty{ib}, 'Color', bcol(ib,:), 'LineWidth', P.LW);
-end
-G01 = interp1(S1.kbars, S1.G0, kop);
-plot(ax, kop, G01, 'o', 'MarkerSize', 12, 'MarkerFaceColor','w', ...
-     'MarkerEdgeColor', bcol(1,:), 'LineWidth', P.ALW);
-ylim(ax, [1.0 4.8]);
-set(ax, 'YColor', bcol(1,:));
-ylabel(ax, 'gain ceiling $G(0)$', 'Interpreter','latex', 'FontSize', P.LSZ);
-
-G0at = @(S,k) interp1(log(S.kbars), S.G0, log(k));
-P.label(P, ax, 0.25, G0at(S1,0.25) - 0.15, '$G(0)$, $\beta_0=1$', ...
-        'Color', bcol(1,:), 'HorizontalAlignment','right', 'VerticalAlignment','top');
-P.label(P, ax, 0.2, G0at(S2,0.2) - 0.15, '$\beta_0=0.5$', ...
-        'Color', bcol(2,:), 'HorizontalAlignment','left', 'VerticalAlignment','top');
-
-P.label(P, ax, kop*1.05, 1.05, 'representative', 'Color', lgt, ...
-        'HorizontalAlignment','left', 'VerticalAlignment','bottom');
-xlim(ax, kl);
+xlabel(ax, 'single-scenter offset $p_0$', 'Interpreter','latex', 'FontSize', P.LSZ);
+ylabel(ax, 'first-scenter value $g_1$', 'Interpreter','latex', 'FontSize', P.LSZ);
 P.axes(P, ax);
-set(ax, 'Position', POS, 'XColor','none');
+set(ax, 'Position', [0.17 0.16 0.77 0.72]);
+P.export(P, 'fig6b', outdir, h);
 
-P.export(P, 'fig5b', outdir, h);
-
-out = struct('kbars',S1.kbars,'pstar_norm',[S1.pstar; S2.pstar]/prm0.sig, ...
-             'G0',[S1.G0; S2.G0],'beta0s',[S1.beta0 S2.beta0], ...
-             'pstar_op',ps1,'G0_op',G01);
-fprintf('fig5b: at kbar = %.4g, p*/sigma = %.3f and G(0) = %.3f (beta0 = 1)\n', ...
-        kop, ps1, G01);
-end
-
-function y = curveAt(S, k, prm0)
-y = interp1(log(S.kbars), S.pstar/prm0.sig, log(k));
+out = struct('p0s',p0s,'g1',g1,'gstar',gstar,'ub',ub,'lb',lb,'p0crit',p0crit, ...
+             'p0need',p0need,'pstar',pstars,'G0',G0s,'Wmin',Wmins,'g1ref',g1ref);
 end
 
 % =========================================================================
-% Panel (c), fig5c. Conditional discovery times at unequal donors.
+% Panel (b), fig6c. Gain elasticity and its limits.
 % =========================================================================
-function out = panel_c(prm0, P, outdir, ratios, rmc, nmc, seed)
-%PANEL_C  Conditional discovery times at two uncued donors of unequal
-%   absorptivity. Panel (c).
+function out = panel_b(Q, T, P, outdir, Fb)
+%PANEL_B  Gain elasticity e(Fbar) = Fbar Gtilde'/Gtilde for the three
+%   offsets, with the small- and large-Fbar asymptotes at p_0 = 0.75.
 %
-%   Donors at -pi/2 and +pi/2 with absorptivities kbar*sqrt(r) and kbar/sqrt(r),
-%   so their geometric mean stays at the representative value. Curves are the arc
-%   solution (atwo) of (T_1 - T_2)/Tbar against r at three reversal rates.
-%   Markers are event-driven Monte Carlo at beta0 = 1, bars +-1.96 standard
-%   errors. Equal conditional times are what let Eq. (Lambda) split arrivals in
-%   proportion to the splitting probabilities. At beta0 = 1 the times agree to
-%   a fraction of a percent; they separate only once reversal is frequent.
+%   Gtilde' is taken by the envelope theorem from the Poisson increments, not
+%   by differencing the table.
 %
-%   The Monte Carlo is cached under outdir behind a stamped key.
+%   Small Fbar: e ~ (g_1 - 1) Fbar.
+%   Large Fbar: W has a cusp at the peak, W(gamma_0, p) ~ G(0) - c_1 |p|, with
+%   c_1 the one-sided slope at the ceiling reliance. Averaging |p| over
+%   N(0, p_0^2/k) and k ~ Poisson(Fbar) gives
+%       Gtilde ~ G(0) - C/sqrt(Fbar),   C = c_1 p_0 sqrt(2/pi),
+%       e      ~ C/(2 G(0) sqrt(Fbar)).
+%   C is computed from c_1 with no fit and checked against the tail of the
+%   computed Gtilde. The curvature form C/(G(0) Fbar) needs a smooth peak,
+%   which W does not have.
 
-if nargin < 4 || isempty(ratios), ratios = logspace(0, log10(16), 25); end
-if nargin < 5 || isempty(rmc),    rmc = [2 4 8 16]; end
-if nargin < 6 || isempty(nmc),    nmc = 1e5; end
-if nargin < 7 || isempty(seed),   seed = 10; end
-
-A2 = atwo();  M = lingermodel();
-traps = [-pi/2 pi/2];
-betas = [0.1 1 10];
-kap   = @(r) prm0.kbar*[sqrt(r) 1/sqrt(r)];
-thOf  = @(r) 1 - exp(-kap(r)/prm0.v);
-
-dT = zeros(numel(betas), numel(ratios));
-for ib = 1:numel(betas)
-    for ir = 1:numel(ratios)
-        [~, Tc, Tbar] = A2.split(traps, thOf(ratios(ir)), [], prm0.sig, betas(ib), 0, prm0.sm, prm0.v);
-        dT(ib, ir) = 100*(Tc(1) - Tc(2))/Tbar;
+W  = T.W{1};  G0 = Q.G0;
+Fl = logspace(log10(min(Fb)), log10(400), 240);    % to read the tail
+K  = ceil(max(Fl) + 12*sqrt(max(Fl)) + 30);
+np = numel(Q.p0list);
+e  = nan(np, numel(Fl));  Gt = e;  gsel = e;
+epk = nan(1,np);  Fpk = nan(1,np);  g1 = nan(1,np);
+for i = 1:np
+    rk = Q.ak(W.p, W.G, Q.p0list(i), K);
+    [Gt(i,:), j, dG] = Q.mix(rk, Fl);
+    gsel(i,:) = W.gam(j);
+    e(i,:) = Fl.*dG./Gt(i,:);
+    g1(i) = max(rk(:,1));
+    [~, kk] = max(e(i,:));
+    % Parabolic refinement in log Fbar.
+    if kk > 1 && kk < numel(Fl)
+        u = log(Fl(kk-1:kk+1));  c = polyfit(u, e(i,kk-1:kk+1), 2);
+        Fpk(i) = exp(-c(2)/(2*c(1)));  epk(i) = polyval(c, log(Fpk(i)));
+    else
+        Fpk(i) = Fl(kk);  epk(i) = e(i,kk);
     end
 end
+if any(abs(gsel(:,2:end) - max(W.gam)) > 1e-12, 'all')
+    fprintf('fig6c: the maximizing reliance leaves the ceiling somewhere on the sweep\n');
+else
+    fprintf('fig6c: the maximizing reliance sits on the ceiling for every Fbar > 0 and all three offsets\n');
+end
 
-% ---- Monte Carlo at beta0 = 1 --------------------------------------------
-key = M.stamp('fig5c-v1', prm0, rmc, nmc, seed);
-cachefile = fullfile(outdir, 'fig5c_mc.mat');
+% Cross-check against the table derivative the reduced model uses.
+M = lingermodel();
+edl = Fb.*M.dlogPsi(Q.psList{1}, Fb);
+eme = interp1(Fl, e(1,:), Fb);
+fprintf('fig6c: max |e_envelope - e_dlogPsi| at p0 = 0.75 on Fbar in [0.1, 25]: %.4f\n', ...
+        max(abs(eme(Fb <= 25) - edl(Fb <= 25))));
+
+C  = T.c1*Q.p0list(1)*sqrt(2/pi);
+Ct = sqrt(Fl).*(G0 - Gt(1,:));
+fprintf('fig6c: one-sided slope of W at the peak c1 = %.3f, so C = c1 p0 sqrt(2/pi) = %.3f\n', T.c1, C);
+fprintf('fig6c: tail check sqrt(F)(G0 - Gtilde) at F = 25, 100, 400: %.3f %.3f %.3f\n', ...
+        interp1(Fl, Ct, [25 100 400]));
+fprintf('fig6c: F(G0 - Gtilde) at F = 25, 100, 400: %.2f %.2f %.2f (no 1/F limit)\n', ...
+        interp1(Fl, Fl.*(G0 - Gt(1,:)), [25 100 400]));
+sl = polyfit(log(Fl(Fl >= 100)), log(G0 - Gt(1, Fl >= 100)), 1);
+fprintf('fig6c: log-log slope of G0 - Gtilde over F in [100, 400]: %.3f\n', sl(1));
+Fpred = (C/(2*G0*(g1(1) - 1)))^(2/3);
+for i = 1:np
+    fprintf('fig6c: p0 = %.2f, elasticity peak e = %.3f at Fbar = %.2f\n', Q.p0list(i), epk(i), Fpk(i));
+end
+fprintf('fig6c: asymptote crossing predicts the p0 = 0.75 peak near Fbar = %.2f\n', Fpred);
+
+% ---- panel --------------------------------------------------------------
+h  = P.figure(P);
+ax = axes('Parent',h);  hold(ax,'on');
+show = Fl <= max(Fb);
+Fs = Fl(show);
+aC = P.grey;
+% Literal sum of tents at the reference offset, with the measured peak variance.
+rkv = Q.akv(W.p, W.G, Q.p0list(1), K, Q.vk.k, Q.vk.ratio, Q.vk.vinf);
+[Gv, jv, dGv] = Q.mix(rkv, Fl);
+ev = Fl.*dGv./Gv;
+[~, kv] = max(ev);
+u = log(Fl(kv-1:kv+1));  cv = polyfit(u, ev(kv-1:kv+1), 2);
+Fpkv = exp(-cv(2)/(2*cv(1)));  epkv = polyval(cv, log(Fpkv));
+fprintf('fig6c: summed-tent peak variance, elasticity peak e = %.3f at Fbar = %.2f\n', epkv, Fpkv);
+plot(ax, Fs, (g1(1) - 1)*Fs, ':', 'Color', aC, 'LineWidth', P.ALW);
+plot(ax, Fs, C./(2*G0*sqrt(Fs)), ':', 'Color', aC, 'LineWidth', P.ALW);
+for i = np:-1:1
+    plot(ax, Fs, e(i,show), P.p0sty{i}, 'Color', P.p0cols(i,:), 'LineWidth', P.LW);
+end
+vshow = show & (Fl <= 12);   % measured counts reach k = 30, so read F <~ 12
+plot(ax, Fl(vshow), ev(vshow), '--', 'Color', [0.1 0.1 0.1], 'LineWidth', P.LW-1.5);
+plot(ax, Fpkv, epkv, 'o', 'MarkerSize', 11, 'LineWidth', P.ALW, ...
+     'MarkerFaceColor','w', 'MarkerEdgeColor', [0.1 0.1 0.1]);
+for i = 1:np
+    plot(ax, Fpk(i), epk(i), 'o', 'MarkerSize', 11, 'LineWidth', P.ALW, ...
+         'MarkerFaceColor','w', 'MarkerEdgeColor', P.p0cols(i,:));
+end
+set(ax, 'XScale','log');
+xlim(ax, [min(Fb) max(Fb)]);  ylim(ax, [0 0.4]);
+set(ax, 'XTick', [0.1 1 10]);
+
+fs = P.FSZ - 2;
+% The peak value is convention dependent, so it is marked but not printed;
+% the caption gives it.
+text(ax, 0.115, 0.30, '$(g_1-1)\bar F$', 'Interpreter','latex', 'FontSize', fs, 'Color', aC);
+text(ax, 5.0, 0.288, '$C/2G(0)\sqrt{\bar F}$', 'Interpreter','latex', ...
+     'FontSize', fs, 'Color', aC, 'HorizontalAlignment','left');
+swatches(P, ax, 6, 9, 9.8, [0.39 0.362 0.334], Q.p0list);
+plot(ax, [6 9], 0.035*[1 1], '--', 'Color', [0.1 0.1 0.1], 'LineWidth', P.LW-1.5);
+text(ax, 9.8, 0.035, 'summed tents', 'Interpreter','latex', 'FontSize', P.FSZ-4, ...
+     'Color', [0.1 0.1 0.1], 'VerticalAlignment','middle');
+
+xlabel(ax, 'scenting population $\bar F$', 'Interpreter','latex', 'FontSize', P.LSZ);
+ylabel(ax, 'gain elasticity $e(\bar F)$', 'Interpreter','latex', 'FontSize', P.LSZ);
+P.axes(P, ax);
+set(ax, 'Position', [0.17 0.16 0.77 0.72]);
+P.export(P, 'fig6c', outdir, h);
+
+out = struct('epkv',epkv,'Fpkv',Fpkv,'F',Fl,'e',e,'Gt',Gt,'epk',epk,'Fpk',Fpk,'g1',g1,'C',C,'c1',T.c1, ...
+             'tailslope',sl(1),'Fpred',Fpred);
+end
+
+% ------------------------------------------------------------------------
+function swatches(P, ax, x0, x1, xt, ys, p0list)
+%SWATCHES  Hand-drawn line-style key for the p_0 family, as axes objects.
+for i = 1:numel(ys)
+    plot(ax, [x0 x1], ys(i)*[1 1], P.p0sty{i}, 'Color', P.p0cols(i,:), 'LineWidth', P.LW-0.5);
+    text(ax, xt, ys(i), sprintf('$p_0=%.2f$', p0list(i)), 'Interpreter','latex', ...
+         'FontSize', P.FSZ-4, 'Color', P.p0cols(i,:), 'VerticalAlignment','middle');
+end
+end
+
+% =========================================================================
+% Panel (c), fig6d. Peak variance against scenter count.
+% =========================================================================
+function out = panel_c(prm, p0, outdir, klist, nmc, dx, nmed, seed, mseed)
+%PANEL_C  Variance ratio k Var(peak)/p0^2 of the aggregate plume peak
+%   against scenter count, against the sample-median values v_k, the model
+%   value 1, and the two limits of the tent peak. Panel (c).
+%
+%   Peak ensemble. Scenter offsets are xi_i ~ N(0, p0^2), each casting a unit
+%   tent of half-width sigma, summed on the line. The peak is the argmax of
+%   the summed cue on a uniform grid of spacing DX. On a plateau of the
+%   aggregate, where the maximum is attained on an interval, the peak is the
+%   midpoint of the run. The grid peak is checked against the exact maximum,
+%   which sits at one of the xi_i since the aggregate is piecewise linear with
+%   downward kinks only at the scenters. The sample median and the sample mean
+%   of the same offsets are kept for comparison. The ensemble is cached in
+%   OUTDIR under a stamped key.
+%
+%   The Monte Carlo band is +-1.96 standard errors of the sample variance,
+%   using the sample fourth moment.
+%
+%   For many scenters the peak is the zero of the aggregate slope, whose mean
+%   is the tent-smoothed offset density. Linearizing about the origin with
+%   z = sigma/p0 gives
+%
+%       k Var(peak)/p0^2 -> pi erf(z/sqrt 2) / (2 (1 - exp(-z^2/2))^2),
+%
+%   which is pi/2, the sample median, when sigma >> p0 and grows as the
+%   cluster widens against the tent.
+%
+%   v_k for the sample median is estimated from NMED draws per k.
+
+if nargin < 3 || isempty(outdir), outdir = 'output'; end
+if nargin < 4 || isempty(klist),  klist = [1 2 3 4 5 6 8 10 13 16 20 25 30]; end
+if nargin < 5 || isempty(nmc),    nmc = 40000; end
+if nargin < 6 || isempty(dx),     dx = 2e-3; end
+if nargin < 7 || isempty(nmed),   nmed = 400000; end
+if nargin < 8 || isempty(seed),   seed = 17; end
+if nargin < 9 || isempty(mseed),  mseed = 29; end
+
+M = lingermodel();  P = linger_style();
+sig = prm.sig;
+
+% ---- peak ensemble ------------------------------------------------------
+cfile = fullfile(outdir, 'fig6d_cache.mat');
+key = M.stamp('fig6d-grid-argmax', sig, p0, klist, nmc, dx, seed);
 D = [];
-if isfile(cachefile)
-    C = load(cachefile);
-    if isfield(C,'key') && strcmp(C.key, key)
-        D = C.D;  fprintf('fig5c: reusing cached Monte Carlo\n');
-    end
+if isfile(cfile)
+    C = load(cfile);
+    if isfield(C, 'key') && strcmp(C.key, key), D = C.R; fprintf('fig6d: loaded stamped peak ensemble\n'); end
 end
 if isempty(D)
-    D = struct('d', zeros(size(rmc)), 'se', zeros(size(rmc)), 'pi1', zeros(size(rmc)));
-    for i = 1:numel(rmc)
-        th = thOf(rmc(i));
-        [~, ~, Tbar] = A2.split(traps, th, [], prm0.sig, 1, 0, prm0.sm, prm0.v);
-        [who, tabs] = A2.mc(nmc, traps, th, [], prm0.sig, 1, 0, prm0.sm, prm0.v, seed + i);
-        a = tabs(who == 1);  b = tabs(who == 2);
-        D.d(i)   = 100*(mean(a) - mean(b))/Tbar;
-        D.se(i)  = 100*sqrt(var(a)/numel(a) + var(b)/numel(b))/Tbar;
-        D.pi1(i) = mean(who == 1);
+    nk = numel(klist);
+    pk = zeros(nmc, nk);  pe = zeros(nmc, nk);  md = zeros(nmc, nk);  mn = zeros(nmc, nk);
+    narrow = zeros(1, nk);
+    for a = 1:nk
+        k = klist(a);
+        rng(seed + k);
+        X = p0*randn(nmc, k);
+        md(:,a) = median(X, 2);  mn(:,a) = mean(X, 2);
+        narrow(a) = mean(max(X, [], 2) - min(X, [], 2) < sig);
+        pk(:,a) = gridPeak(X, sig, dx);
+        pe(:,a) = exactPeak(X, sig);
+        fprintf('fig6d: k = %d done\n', k);
     end
-    save(cachefile, 'D', 'key');
+    R = struct('k',klist,'peak',pk,'exact',pe,'median',md,'mean',mn, ...
+               'narrow',narrow,'n',nmc,'dx',dx,'p0',p0,'sig',sig);
+    save(cfile, 'R', 'key');
+    D = R;
 end
 
-% ---- plot ----------------------------------------------------------------
-cols = [P.greens(4,:); P.greens(6,:); P.grey];
-h = P.figure(P);
-ax = axes('Parent', h);  hold(ax, 'on');
-yline(ax, 0, ':', 'Color', [0 0 0], 'LineWidth', P.ALW);
-for ib = 1:numel(betas)
-    plot(ax, ratios, dT(ib,:), '-', 'Color', cols(ib,:), 'LineWidth', P.LW);
+agree = mean(abs(D.peak - D.exact) <= D.dx);
+atmed = mean(abs(D.peak - D.median) <= D.dx);
+
+% ---- variance ratios ----------------------------------------------------
+k = D.k;  n = D.n;
+z = sig/p0;
+vinf = pi*erf(z/sqrt(2))/(2*(1 - exp(-z^2/2))^2);
+
+vr = zeros(size(k));  vse = zeros(size(k));  vmn = zeros(size(k));
+for a = 1:numel(k)
+    x = D.peak(:,a) - mean(D.peak(:,a));
+    s2 = mean(x.^2)*n/(n-1);  m4 = mean(x.^4);
+    vr(a)  = k(a)*s2/p0^2;
+    vse(a) = k(a)*sqrt(max(m4 - s2^2*(n-3)/(n-1), 0)/n)/p0^2;
+    vmn(a) = k(a)*var(D.mean(:,a))/p0^2;
 end
-errorbar(ax, rmc, D.d, 1.96*D.se, 'o', 'Color', P.blues(3,:), 'MarkerFaceColor','w', ...
-         'MarkerSize', 12, 'LineWidth', P.ALW, 'CapSize', 10, 'LineStyle','none');
-set(ax, 'XScale','log');
-xlim(ax, [1 16]);  ylim(ax, [-10 4]);
-set(ax, 'XTick', [1 2 4 8 16], 'XTickLabel', {'$1$','$2$','$4$','$8$','$16$'});
-xlabel(ax, 'absorptivity ratio $\overline\kappa_1/\overline\kappa_2$', 'Interpreter','latex', 'FontSize', P.LSZ);
-ylabel(ax, 'time difference $(T_1-T_2)/\bar T$ (\%)', 'Interpreter','latex', 'FontSize', P.LSZ);
-P.label(P, ax, 1.1, 1.6, '$\beta_0=0.1$ and $1$', 'Color', cols(2,:), 'VerticalAlignment','bottom');
-P.label(P, ax, 3.0, -6.2, '$\beta_0=10$', 'Color', cols(3,:), 'HorizontalAlignment','left');
-P.label(P, ax, 15, 2.6, 'simulation, $\beta_0=1$', 'Color', P.blues(3,:), 'HorizontalAlignment','right');
+% v_k from a larger median ensemble.
+vk = zeros(size(k));
+for a = 1:numel(k)
+    rng(mseed + k(a));
+    vk(a) = k(a)*var(median(randn(nmed, k(a)), 2));
+end
+
+for a = 1:numel(k)
+    fprintf(['fig6d: k = %2d  tent peak %.3f +- %.3f   sample median v_k %.3f   sample mean %.3f\n' ...
+             '              grid = exact peak on %.3f of draws, peak = sample median on %.3f, ' ...
+             'cluster narrower than sigma on %.3f\n'], ...
+            k(a), vr(a), 1.96*vse(a), vk(a), vmn(a), agree(a), atmed(a), D.narrow(a));
+end
+fprintf('fig6d: large-k limit of the tent peak %.3f at sigma/p0 = %.3f; median limit pi/2 = %.3f\n', ...
+        vinf, z, pi/2);
+
+% ---- panel --------------------------------------------------------------
+cM = P.blues(3,:);  cV = P.greens(4,:);
+h = P.figure(P);  ax = axes('Parent', h);  hold(ax, 'on');
+kl = [0.8 40];
+fill(ax, [k fliplr(k)], [vr + 1.96*vse, fliplr(vr - 1.96*vse)], P.blues(1,:), ...
+     'FaceAlpha', 0.5, 'EdgeColor', 'none');
+plot(ax, kl, vinf*[1 1], '--', 'Color', P.grey, 'LineWidth', P.ALW);
+plot(ax, kl, pi/2*[1 1], ':', 'Color', P.grey, 'LineWidth', P.ALW);
+plot(ax, kl, [1 1], '-', 'Color', P.grey, 'LineWidth', P.ALW);
+plot(ax, k, vk, '-', 'Color', cV, 'LineWidth', P.LW);
+plot(ax, k, vk, 'o', 'Color', cV, 'MarkerFaceColor', cV, 'MarkerSize', 7);
+plot(ax, k, vr, '-', 'Color', cM, 'LineWidth', P.LW);
+plot(ax, k, vr, 'o', 'Color', cM, 'MarkerFaceColor', 'w', 'MarkerSize', 12, 'LineWidth', P.ALW);
+set(ax, 'XScale', 'log');
+xlim(ax, kl);  ylim(ax, [0 1.12*vinf]);
+set(ax, 'XTick', [1 3 10 30]);
+xlabel(ax, 'scenters $k$', 'Interpreter','latex', 'FontSize', P.LSZ);
+ylabel(ax, 'variance ratio $k\,\mathrm{Var}(p)/p_0^2$', 'Interpreter','latex', 'FontSize', P.LSZ);
 P.axes(P, ax);
-P.export(P, 'fig5c', outdir, h);
+set(ax, 'Position', [0.17 0.17 0.76 0.72]);
+P.label(P, ax, 0.9, vinf, 'large-$k$ limit', 'Color', P.grey, 'VerticalAlignment','bottom');
+P.label(P, ax, 0.9, pi/2, '$\pi/2$', 'Color', P.grey, 'VerticalAlignment','bottom');
+P.label(P, ax, 38, 1, 'model, sample mean', 'Color', P.grey, 'HorizontalAlignment','right', 'VerticalAlignment','top');
+P.label(P, ax, 6, interp1(k, vr, 6) + 0.25, 'tent peak', 'Color', cM, 'HorizontalAlignment','right', 'VerticalAlignment','bottom');
+P.label(P, ax, 38, pi/2 + 0.05, 'sample median', 'Color', cV, 'HorizontalAlignment','right', 'VerticalAlignment','bottom');
 
-out = struct('ratios',ratios,'betas',betas,'dT',dT,'mc',D,'rmc',rmc);
-fprintf('fig5c: max |T1-T2|/Tbar over r in [1,16]:  beta0 = 0.1 %.2f%%,  1 %.2f%%,  10 %.2f%%\n', ...
-        max(abs(dT),[],2));
-fprintf('fig5c: Monte Carlo at beta0 = 1, r = %s:  %s  (+-1.96 SE %s)\n', mat2str(rmc), ...
-        mat2str(D.d,3), mat2str(1.96*D.se,3));
+P.export(P, 'fig6d', outdir, h);
+close(h);
+
+out = struct('k',k,'ratio',vr,'se',vse,'vk',vk,'vmean',vmn,'vinf',vinf,'z',z, ...
+             'agree',agree,'atmedian',atmed,'narrow',D.narrow,'n',n,'p0',p0,'sig',sig);
+end
+
+% ------------------------------------------------------------------------
+function pk = gridPeak(X, sig, dx)
+%GRIDPEAK  Argmax of the summed tents on a uniform grid, plateau midpoint.
+[n, k] = size(X);
+pk = zeros(n, 1);  chunk = 2000;
+for c0 = 1:chunk:n
+    rows = c0:min(n, c0 + chunk - 1);
+    Xr = X(rows,:);
+    lo = floor((min(Xr(:)) - sig)/dx)*dx;  hi = ceil((max(Xr(:)) + sig)/dx)*dx;
+    xg = lo:dx:hi;
+    Cg = zeros(numel(rows), numel(xg));
+    for i = 1:k
+        Cg = Cg + max(0, 1 - abs(xg - Xr(:,i))/sig);
+    end
+    [cm, jm] = max(Cg, [], 2);
+    tol = 1e-9*k;
+    for r = 1:numel(rows)
+        top = Cg(r,:) >= cm(r) - tol;
+        j1 = jm(r);  j2 = jm(r);
+        while j1 > 1 && top(j1-1), j1 = j1 - 1; end
+        while j2 < numel(xg) && top(j2+1), j2 = j2 + 1; end
+        pk(rows(r)) = 0.5*(xg(j1) + xg(j2));
+    end
+end
+end
+
+function pk = exactPeak(X, sig)
+%EXACTPEAK  Maximum over the scenter positions, plateau midpoint. Disconnected
+%   equal maxima, which occur for two scenters farther apart than sigma, are
+%   resolved by a fair draw, which the grid does through its discretization.
+[n, k] = size(X);
+pk = zeros(n, 1);  tol = 1e-9*k;
+for r = 1:n
+    xi = sort(X(r,:));
+    c = sum(max(0, 1 - abs(xi' - xi)/sig), 2)';
+    cm = max(c);
+    j = find(c >= cm - tol);
+    mids = [];  j1 = j(1);  j2 = j1;
+    for m = j(2:end)
+        xm = 0.5*(xi(j2) + xi(m));
+        if sum(max(0, 1 - abs(xm - xi)/sig)) >= cm - tol
+            j2 = m;
+        else
+            mids(end+1) = 0.5*(xi(j1) + xi(j2)); %#ok<AGROW>
+            j1 = m;  j2 = m;
+        end
+    end
+    mids(end+1) = 0.5*(xi(j1) + xi(j2)); %#ok<AGROW>
+    pk(r) = mids(randi(numel(mids)));
+end
 end

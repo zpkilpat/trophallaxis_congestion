@@ -15,7 +15,7 @@ function P = linger_style()
 %   1.52 in every panel that carries the family, darkest at the smallest
 %   offset. Use P.p0cols and P.p0sty rather than indexing P.greens by hand.
 %
-%   CLIM_SPEEDUP is a floor for the Fig. 4(c) color limit. Fig. 4(c) takes
+%   CLIM_SPEEDUP is a floor for the Fig. 3(c) color limit. Fig. 3(c) takes
 %   max(floor, ceil(data)) so the largest speedup is never clipped.
 
 P.LW   = 3.5;
@@ -25,7 +25,7 @@ P.ALW  = 2;
 P.FIG  = [22 19];          % centimeters, identical for every panel
 P.DPI  = 400;
 P.CBSHRINK    = 0.82;      % axes width retained when a colorbar is added
-P.CLIM_SPEEDUP = [0 60];   % percent, a floor for Fig. 4(c)
+P.CLIM_SPEEDUP = [0 60];   % percent, a floor for Fig. 3(c)
 
 P.greens = [0.86 0.94 0.87; 0.66 0.85 0.70; 0.44 0.74 0.53;
             0.20 0.55 0.32; 0.13 0.41 0.24; 0.06 0.27 0.15];

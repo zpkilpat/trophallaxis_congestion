@@ -1,7 +1,6 @@
 function out = figure5(varargin)
-%FIGURE5 Reproduce the three panels of Figure 5 (feeding is fastest at an
-%   intermediate abandonment rate) and assemble the lettered figure
-%   output/figs/fig5.pdf.
+%FIGURE6 Reproduce the three panels of Figure 5 (competing donors) and assemble
+%   the lettered figure output/figs/fig5.pdf.
 %
 % Usage
 %   figure5
@@ -9,15 +8,13 @@ function out = figure5(varargin)
 %   figure5('outdir','output/figure5')
 %
 % Panel map
-%   (a) figL6   reduction versus individual-based model
-%   (b) figL7   fed population and total donor occupancy over time
-%   (c) figL5   optimal abandonment versus fed fraction
+%   (a) figT3   total recruitment benefit versus service asymmetry
+%   (b) figT1   feeding time and cue contrast versus abandonment rate
+%   (c) figT2   optimal abandonment versus service asymmetry
 %
-% The single-donor gain tables come from linger_setup, the same tables as
-% Fig. 4, and are cached with a parameter stamp. The stochastic panel data are
-% cached in outdir by each panel routine. A normal call uses the paper
-% settings. 'fast' uses coarser grids and fewer realizations to check that the
-% code runs end to end, and never changes a model parameter.
+% The exact two-donor arrival table is built by twogain (on atwo) in
+% twodonor_setup and the reduced system by twodonor. A normal call uses the
+% production grids. 'fast' uses coarse tables as an end-to-end smoke test.
 
 addpath(genpath(fullfile(fileparts(mfilename('fullpath')), 'src')));
 
@@ -30,26 +27,20 @@ OUTDIR = ip.Results.outdir;
 if ~isfolder(OUTDIR), mkdir(OUTDIR); end
 close all
 
-S = linger_setup(OUTDIR, fast, 'figure5');
-G = S.G;  psList = S.psList;  cfg = S.cfg;
+S = twodonor_setup(OUTDIR, fast, 'figure5', false);
+G2 = S.G2;  res = S.res;  cfg0 = S.cfg0;
 
 if fast
-    qgrid5 = linspace(0.10,0.95,10);
-    dgrid5 = logspace(-2.5,1.0,20);
-    dcheck = [0.03 0.10 0.20 0.50 1.0];
-    nrep = 12;
+    T1 = panel_b(G2,cfg0,OUTDIR,20,logspace(-2.5,1.0,24),0.5,0.35);
+    T2 = panel_c(res,OUTDIR);
+    T3 = panel_a(res,OUTDIR,true);
 else
-    qgrid5 = linspace(0.10,0.95,22);
-    dgrid5 = logspace(-2.5,1.0,44);
-    dcheck = [0.01 0.03 0.05 0.1 0.15 0.2 0.3 0.5 1.0 3.0];
-    nrep = 200;
+    T1 = panel_b(G2,cfg0,OUTDIR);
+    T2 = panel_c(res,OUTDIR);
+    T3 = panel_a(res,OUTDIR);
 end
 
-L5 = panel_c(psList,cfg,OUTDIR,qgrid5,dgrid5);
-L6 = panel_a(psList,G,cfg,OUTDIR,dcheck,nrep,0.5,1);
-L7 = panel_b(psList,G,cfg,OUTDIR,[0.20 0.248 1.00],0.5,1,false,0);
-
-out = struct('G',G,'psList',{psList},'L5',L5,'L6',L6,'L7',L7);
+out = struct('G2',G2,'res',res,'T1',T1,'T2',T2,'T3',T3);
 save(fullfile(OUTDIR,'figure5_results.mat'),'-struct','out');
 
 % Lettered figure, one row of three panel canvases at the panel size.
@@ -57,529 +48,286 @@ figdir = fullfile('output','figs');
 if ~isfolder(figdir), mkdir(figdir); end
 T = [22 19];
 tiles = [0 0 T; T(1) 0 T; 2*T(1) 0 T];
-panels = fullfile(OUTDIR, strcat({'figL6','figL7','figL5'}, '.fig'));
+panels = fullfile(OUTDIR, strcat({'figT3','figT1','figT2'}, '.fig'));
 assemble_figure(fullfile(figdir,'fig5'), panels, tiles, [3*T(1) T(2)]);
 
-fprintf('Figure 5 complete. Panel order: figL6, figL7, figL5.\n');
+fprintf('Figure 5 complete. Panel order: figT3, figT1, figT2.\n');
 end
 
 % =========================================================================
-% Panel (a), figL6. Reduction against the individual-based model.
+% Panel (a), figT3. Total recruitment benefit.
 % =========================================================================
-function out = panel_a(psList, G, cfg, outdir, dcheck, nrep, q, abmIdx)
-%PANEL_A  Reduced system against the full individual-based model.
-%   The reduction credits the recruitment gain Psi~(Fbar) in full, but a
-%   searcher can exploit a plume only if it persists long enough for its
-%   phase profile on the ring to build. That profile relaxes on the lap time
-%   L = 2*pi/v, so the closure holds in the window
-%
-%       2*pi/v  <<  1/delta  <<  1/lam0,
-%
-%   and over-credits when the scenting population turns over faster than a
-%   circuit. The printed realized fraction (Tinf - ABM)/(Tinf - reduction) is
-%   near 1 inside the window and falls to 0 as delta*L passes 1, where the
-%   ABM reaches the no-lingering line.
-%
-%   Only the reference p_0 is drawn. The closure turns on delta*L, not p_0,
-%   and Fig. 4(a) and panel (c) show the p_0 family. The gap between curve and markers
-%   is shaded, since it is the realized fraction quoted in the text. Set
-%   SHOWALL true to draw all three reduction curves.
-%
-%   T_{1/2} is the time to feed half the colony, not a median. Markers are
-%   the mean over nrep realizations and bars are 1.96 standard errors.
-%
-%   Crowd occupancy is not the relevant scale. The crowd is largest where the
-%   agreement is best. Panel (b) shows the occupancy.
-%
-%   The ABM must not fall below the reduction anywhere. If it does, a bee is
-%   being returned to the searching pool. This is checked below.
-%
-%   The ABM runs are cached under outdir and reused when the stamp matches.
-%   The stamp carries a version tag so a convention change without a
-%   parameter change forces a rerun.
+function out = panel_a(res, outdir, showbase)
+%PANEL_A  Total recruitment benefit against service asymmetry.
+%   Benefit is 100*(Tnone-Tfull)/Tnone, with each donor-specific cue run at
+%   its optimal abandonment rate. The unaided feeding time is shown on the
+%   right axis because it also changes with asymmetry.
+%   The minimum is interpolated within its neighboring log-r grid points.
 
-if nargin < 4, outdir = 'output'; end
-if nargin < 5, dcheck = [0.01 0.03 0.05 0.1 0.15 0.2 0.3 0.5 1.0 3.0]; end
-if nargin < 6, nrep = 200; end
-if nargin < 7, q = 0.5; end
-if nargin < 8, abmIdx = 1; end          % which p_0 gets simulated markers
-SHOWALL = false;
-VER = 'v2-reliance-outside-average';
-
-M = lingermodel();  P = linger_style();
-Lap = 2*pi/G.prm.v;
-dg  = logspace(-2.5, 1.0, 44);
-np  = numel(psList);
-
-Tred = zeros(np, numel(dg));
-for i = 1:np
-    Tred(i,:) = arrayfun(@(d) M.Tq(d, psList{i}, cfg, q), dg);
-end
-ps   = psList{abmIdx};                   % the curve the markers belong to
-Tinf = M.Tq(1e4, ps, cfg, q);            % independent of p_0, so any will do
-
-key = M.stamp(VER, cfg, G.prm, dcheck, nrep, q, ps.p0);
-cachefile = fullfile(outdir, 'figL6_abm.mat');
-mu_ = [];
-if isfile(cachefile)
-    C = load(cachefile);
-    if isfield(C,'key') && strcmp(C.key, key)
-        mu_ = C.mu_;  se = C.se;
-        fprintf('figL6: reusing %d cached ABM realizations per delta\n', nrep);
-    else
-        fprintf('figL6: ABM cache stamp mismatch, rerunning\n');
-    end
-end
-if isempty(mu_)
-    mu_ = zeros(size(dcheck));  se = zeros(size(dcheck));
-    for j = 1:numel(dcheck)
-        r = arrayfun(@(k) M.abm(dcheck(j), G, ps, cfg, q, k), 1:nrep);
-        if any(isnan(r))
-            fprintf('  %d of %d runs hit the time cap at delta = %.3f\n', ...
-                    sum(isnan(r)), nrep, dcheck(j));
-        end
-        r = r(~isnan(r));
-        mu_(j) = mean(r);  se(j) = std(r)/sqrt(numel(r));
-    end
-    save(cachefile, 'mu_', 'se', 'key');
-end
-
-Tr = zeros(size(dcheck));  real_ = zeros(size(dcheck));
-for j = 1:numel(dcheck)
-    Tr(j)    = M.Tq(dcheck(j), ps, cfg, q);
-    real_(j) = (Tinf - mu_(j))/(Tinf - Tr(j));
-    fprintf(['delta=%6.3f  ABM %7.1f +- %4.1f  reduction %7.1f  ' ...
-             'gap %+5.1f%%  delta*L = %5.2f  realized %.2f\n'], ...
-        dcheck(j), mu_(j), se(j), Tr(j), 100*(mu_(j)/Tr(j)-1), ...
-        dcheck(j)*Lap, real_(j));
-end
-
-below = (mu_ + 1.96*se) < Tr;
-if any(below)
-    warning('figL6:abmBelowReduction', ...
-        ['ABM is significantly BELOW the reduction at delta = %s; a bee is ' ...
-         'being returned to the searching pool somewhere'], ...
-        mat2str(dcheck(below), 3));
-end
-
-% optimum located from the simulation rather than from the reduction
-[~, kA] = min(mu_);
-near = abs(mu_ - mu_(kA)) < 1.96*sqrt(se.^2 + se(kA)^2);
-[dR, TR] = M.refineDelta(@(d) M.Tq(d, ps, cfg, q), dg, Tred(abmIdx,:));
+if nargin < 2 || isempty(outdir),   outdir = 'output'; end
+if nargin < 3 || isempty(showbase), showbase = true;   end
+P = linger_style();
 
 h = P.figure(P);
-ax = gca;  hold(ax, 'on');
-yl = [min([mu_ - 2*se, Tred(abmIdx,:)]) - 4, Tinf + 6];
-hb = patch([1/Lap max(dg) max(dg) 1/Lap], [yl(1) yl(1) yl(2) yl(2)], ...
-           [0.90 0.90 0.90], 'EdgeColor','none');       % delta*L > 1
+% The baseline goes on a second, transparent axes on top rather than yyaxis,
+% which copyobj cannot copy at assembly.
+POS = [0.17 0.17 0.66 0.73];
+ax  = axes(h, 'Units','normalized', 'Position', POS, ...
+           'PositionConstraint','innerposition');
+plot(ax, res.r, res.total, '-', 'Color', P.greens(4,:), 'LineWidth', P.LW);
+hold(ax, 'on');
+set(ax, 'XScale', 'log');
 
-% Shaded gap between reduction and simulation, the credited benefit that is
-% not realized. Drawn on the marker abscissae, where both are known.
-Tri = interp1(dg, Tred(abmIdx,:), dcheck);
-patch(ax, [dcheck fliplr(dcheck)], [Tri fliplr(mu_)], P.p0cols(1,:), ...
-      'FaceAlpha', 0.16, 'EdgeColor','none');
+% ---- minimum of the total ---------------------------------------------
+% The sweep samples r finely enough near the dip that the marker sits on the
+% sampled minimum, so it lies on the plotted curve.
+[tg, kg] = min(res.total);
+rmin = res.r(kg);  tmin = tg;  bracket = res.r(max(kg-1,1):min(kg+1,numel(res.r)));
+bracket = [bracket(1) bracket(end)];
+if kg == 1 || kg == numel(res.r)
+    warning('figT3:minAtEdge', ...
+        ['the total is smallest at the edge of rlist (r = %g), so the dip ' ...
+         'is not bracketed; widen the sweep'], res.r(kg));
+end
+plot(ax, [rmin rmin], [0 tmin], ':', 'Color', [0.45 0.45 0.45], 'LineWidth', P.ALW-0.5);
+plot(ax, rmin, tmin, 'o', 'Color','k','MarkerFaceColor','w', ...
+     'MarkerSize', 14, 'LineWidth', P.ALW);
 
-if SHOWALL
-    ord = [setdiff(1:np, abmIdx), abmIdx];   % reference drawn last, on top
-    for j = ord
-        plot(ax, dg, Tred(j,:), P.p0sty{min(j,3)}, 'Color', P.p0cols(min(j,3),:), ...
-             'LineWidth', P.LW - 1.0*(j ~= abmIdx));
-    end
-else
-    plot(ax, dg, Tred(abmIdx,:), '-', 'Color', P.p0cols(1,:), 'LineWidth', P.LW);
+xlabel(ax, 'service asymmetry $r=\mu_1/\mu_2$','Interpreter','latex','FontSize',P.LSZ);
+ylabel(ax, 'benefit (\% of $T_{1/2}$ unaided)','Interpreter','latex','FontSize',P.LSZ);
+xlim(ax, [min(res.r) max(res.r)]);  ylim(ax, [0 1.1*max(res.total)]);
+P.axes(P, ax);
+
+if showbase
+    axr = axes(h, 'Units','normalized', 'Position', POS, 'Color','none', ...
+               'YAxisLocation','right', 'XScale','log');
+    hold(axr, 'on');
+    plot(axr, res.r, res.Tnone, '-', 'Color', [0.72 0.72 0.72], ...
+         'LineWidth', P.ALW);
+    ylabel(axr, '$T_{1/2}$ unaided','Interpreter','latex','FontSize',P.LSZ);
+    xlim(axr, xlim(ax));
+    ylim(axr, 50*[floor(0.8*min(res.Tnone)/50), ceil(1.2*max(res.Tnone)/50)]);
+    P.axes(P, axr);
+    set(axr, 'YColor', [0.55 0.55 0.55], 'XColor','none', 'Color','none');
+    set([ax axr], 'PositionConstraint','innerposition', 'Position', POS);
+    text(axr, 17, 103, {'unaided','feeding time'}, 'Interpreter','latex', ...
+        'FontSize',P.FSZ,'Color',[0.55 0.55 0.55], ...
+        'HorizontalAlignment','center','VerticalAlignment','middle');
 end
 
-yline(Tinf, ':', 'Color', [0 0 0], 'LineWidth', P.ALW);
-errorbar(ax, dcheck, mu_, 1.96*se, 'o', 'Color', P.blues(3,:), ...
-         'MarkerFaceColor','w', 'LineWidth', P.ALW, 'MarkerSize', 12, ...
-         'CapSize', 10, 'LineStyle','none');
-uistack(hb, 'bottom');
-set(ax,'XScale','log');
-xlabel('abandonment rate $\delta$','Interpreter','latex','FontSize',P.LSZ);
-ylabel('half-colony feeding time $T_{1/2}$','Interpreter','latex','FontSize',P.LSZ);
-xlim([min(dg) max(dg)]);  ylim(yl);
-% Label every decade so the optimum is easy to place.
-set(ax, 'XTick', [1e-2 1e-1 1e0 1e1]);
-P.axes(P);
-set(ax, 'Position', [0.17 0.15 0.78 0.73]);
+text(ax, 12, 57, {'recruitment','benefit'}, 'Interpreter','latex', ...
+    'FontSize',P.FSZ,'Color',P.greens(4,:), ...
+    'HorizontalAlignment','center','VerticalAlignment','middle');
 
-x0 = 1.2*min(dg);
-P.label(P, ax, x0, Tinf + 0.8, 'no lingering', 'FontSize', P.FSZ+4, ...
-        'VerticalAlignment','bottom');
-P.label(P, ax, x0, Tinf - 0.8, sprintf('$T_{1/2}(\\infty)=%.0f$', Tinf), ...
-        'FontSize', P.FSZ+4, 'VerticalAlignment','top');
-P.label(P, ax, 1.15/Lap, Tinf - 9, '$\delta L>1$', 'FontSize', P.FSZ+4, ...
-        'VerticalAlignment','top');
-% Curve labels along the descending branch, rotated to its screen slope.
-xs = [0.06 0.017];  ys = interp1(dg, Tred(abmIdx,:), xs);
-P.label(P, ax, xs(1), ys(1) + 12, 'simulation', 'FontSize', P.FSZ+4, ...
-        'Color', P.blues(3,:), 'Rotation', -52, 'HorizontalAlignment','center');
-P.label(P, ax, xs(2), ys(2) - 7, 'theory', 'FontSize', P.FSZ+4, ...
-        'Color', P.p0cols(1,:), 'Rotation', -52, 'HorizontalAlignment','center');
-
-fprintf(['\nreduction optimum  delta = %.3f, T = %.1f, speedup %.1f%%\n' ...
-         'simulated optimum  delta = %.3f, T = %.1f +- %.1f, speedup %.1f%%\n' ...
-         'indistinguishable from it: delta in [%.3f, %.3f]\n'], ...
-    dR, TR, 100*(1-TR/Tinf), ...
-    dcheck(kA), mu_(kA), se(kA), 100*(1-mu_(kA)/Tinf), ...
-    min(dcheck(near)), max(dcheck(near)));
-
-inwin = dcheck*Lap < 1;
-fprintf('realized fraction inside the window: %.2f to %.2f\n', ...
-        min(real_(inwin)), max(real_(inwin)));
-
-out = struct('delta',dcheck,'abm',mu_,'se',se,'red',Tr,'realized',real_, ...
-             'lapd',dcheck*Lap,'dg',dg,'Tred',Tred,'Tinf',Tinf, ...
-             'dstar_abm',dcheck(kA),'dstar_red',dR,'near',near, ...
-             'nrep',nrep,'q',q,'below',below, ...
-             'p0',cellfun(@(z) z.p0, psList),'abmIdx',abmIdx);
-P.export(P, 'figL6', outdir, h);
-end
-
-% =========================================================================
-% Panel (b), figL7. Crowd composition at the donor over time.
-% =========================================================================
-function out = panel_b(psList, G, cfg, outdir, deltas, q, idx, showload, nover)
-%PANEL_B  Crowd composition at the donor.
-%
-%   The no-imposed-capacity claim is scoped to the scenting population F, not
-%   the crowd U+F. F stays near three bees while U+F reaches about fifteen at
-%   the optimum, so a capacity on scenters would be inactive and a capacity
-%   on the crowd would bind.
-%
-%   The focal abandonment rate deltas(1) is drawn as a stacked composition, U
-%   filled on top of F. The other two rates are thinner curves. Hue marks the
-%   family and line style marks delta. Peaks of the focal pair are marked,
-%   since the text quotes maxima.
-%
-%   G is the second argument, matching panel (a), because the overlay calls the
-%   ABM and the ABM needs G.prm.
-%
-%   Optional overlay of nover realizations of F(t) at the focal rate, drawn as
-%   thin stairs over the fill, off by default. The realizations are small
-%   integers with large spread, the smallness the substitution argument of
-%   panel (a) turns on. Seeds are 1:nover, the first members of the ensemble
-%   panel (a) averages at this delta.
-%
-%   Stairs are used because the count is piecewise constant between events.
-%   Each realization stops at its own T, since the ABM halts at nFed >= q*N.
-%   Requires the two-output abm in lingermodel.m.
-%
-%   Measured values
-%       delta      max(U+F)    max(F)   max(U)   max(load)
-%       0.200        15.0       3.75     11.3      1.01     ABM optimum
-%       0.248        12.4       3.04      9.4      0.97     reduced optimum
-%       1.000         small     small    small     small
-%
-%   The load is near unity at the optimum, so the quasi-stationary relations
-%   sit at the edge of their range at delta*. The load is returned but not
-%   drawn by default. Pass showload = true to draw it on a second y axis.
-%
-%   q is the stopping rule, so the panel ends when a fraction q is fed. The
-%   horizon scales as log(1/(1-q))/lam0, 86 at q = 0.5. The rise and peak
-%   occupy the first fifty time units. q = 0.5 matches the other panels.
-
-if nargin < 4 || isempty(outdir), outdir = 'output'; end
-if nargin < 5 || isempty(deltas), deltas = [0.20 0.248 1.00]; end  % ABM opt, reduced, fast
-if nargin < 6 || isempty(q),      q = 0.5; end
-if nargin < 7 || isempty(idx),    idx = 1; end                     % reference p_0
-if nargin < 8 || isempty(showload), showload = false; end
-if nargin < 9 || isempty(nover),  nover = 0; end
-
-M = lingermodel();  P = linger_style();
-ps = psList{idx};
-sty = {'-','--',':'};
-kf = 1;                                          % focal delta, the ABM optimum
-
-nd = numel(deltas);
-out = struct('delta',deltas,'q',q,'p0',ps.p0,'focal',deltas(kf),'kf',kf, ...
-             'maxCrowd',nan(1,nd),'maxF',nan(1,nd),'maxU',nan(1,nd), ...
-             'maxLoad',nan(1,nd),'Tq',nan(1,nd), ...
-             'nover',nover,'overMaxF',[],'overT',[]);
-
-h = P.figure(P);
-ax = gca;  hold(ax,'on');
-tr = cell(1,nd);
-for k = 1:nd
-    tr{k} = M.traj(deltas(k), ps, cfg, q);
-    out.maxCrowd(k) = max(tr{k}.crowd);
-    out.maxF(k)     = max(tr{k}.F);
-    out.maxU(k)     = max(tr{k}.U);
-    out.maxLoad(k)  = max(tr{k}.load);
-    out.Tq(k)       = tr{k}.T;
-end
-
-if showload, yyaxis(ax,'left'); set(ax,'YColor',[0.15 0.15 0.15]); end
-
-% Focal rate as a composition. Scenters at the bottom in the F green, unfed
-% stacked above in the crowd blue, matching the line colors.
-tf = tr{kf}.t(:)';  Ff = tr{kf}.F(:)';  Cf = tr{kf}.crowd(:)';
-fill(ax, [tf fliplr(tf)], [zeros(size(tf)) fliplr(Ff)], P.p0cols(1,:), ...
-     'FaceAlpha', 0.85, 'EdgeColor','none');
-fill(ax, [tf fliplr(tf)], [Ff fliplr(Cf)], P.blues(3,:), ...
-     'FaceAlpha', 0.30, 'EdgeColor','none');
-
-% Realizations of F at the focal rate, over the fill and under the curves.
-if nover > 0
-    oM = nan(1,nover);  oT = nan(1,nover);
-    for k = 1:nover
-        [~, o] = M.abm(deltas(kf), G, ps, cfg, q, k);
-        stairs(ax, o.t, o.F, '-', 'Color', [P.greens(2,:) 0.55], ...
-               'LineWidth', max(0.8, P.LW-2.3));
-        oM(k) = max(o.F);  oT(k) = o.T;
-    end
-    out.overMaxF = oM;  out.overT = oT;
-end
-
-% Crowd above, scenters below, one hue each, line style keyed to delta. The
-% focal rate keeps full weight and the others are thinned.
-for k = 1:nd
-    lw = P.LW;  if k ~= kf, lw = P.LW - 0.9; end
-    plot(ax, tr{k}.t, tr{k}.crowd, sty{k}, 'Color', P.blues(3,:), 'LineWidth', lw);
-end
-for k = 1:nd
-    lw = P.LW;  if k ~= kf, lw = P.LW - 0.9; end
-    plot(ax, tr{k}.t, tr{k}.F, sty{k}, 'Color', P.p0cols(1,:), 'LineWidth', lw);
-end
-
-% The two maxima quoted in the text are located and printed, not drawn.
-[~, iC] = max(Cf);  [~, iF] = max(Ff);
-
-xlabel(ax,'time $t$','Interpreter','latex','FontSize',P.LSZ);
-ylabel(ax,'bees at the donor','Interpreter','latex','FontSize',P.LSZ);
-% The x axis ends at the focal T_q, not the largest, to avoid a long flat tail.
-xlim(ax,[0 out.Tq(kf)]);
-ytop = 1.12*max(out.maxCrowd);
-if nover > 0, ytop = max(ytop, 1.08*max(out.overMaxF)); end
-ylim(ax,[0 ytop]);
-
-if showload
-    yyaxis(ax,'right');
-    set(ax,'YColor',P.blues(1,:));
-    yline(ax, 1, ':', 'Color', [0.35 0.35 0.35], 'LineWidth', P.ALW);
-    for k = 1:nd
-        lw = P.LW - 0.9;  if k == kf, lw = P.LW - 0.4; end
-        plot(ax, tr{k}.t, tr{k}.load, sty{k}, 'Color', P.blues(1,:), 'LineWidth', lw);
-    end
-    ylim(ax,[0 max(1.45, 1.2*max(out.maxLoad))]);
-    ylabel(ax,'load $A/\mu$','Interpreter','latex','FontSize',P.LSZ);
-    yyaxis(ax,'left');
-end
-
-P.axes(P);
-set(ax, 'Position', [0.17 0.15 0.78 0.73]);
-
-% Line style key for delta, drawn in the axes, and family labels at the peaks.
-yk = ytop*[0.95 0.885 0.82];  xk = out.Tq(kf)*[0.02 0.11];
-for k = 1:nd
-    plot(ax, xk, yk(k)*[1 1], sty{k}, 'Color','k', 'LineWidth', P.LW-0.5);
-    dl = sprintf('%.3f', deltas(k));
-    if deltas(k) == round(deltas(k)), dl = sprintf('%d', deltas(k)); end
-    P.label(P, ax, xk(2) + 0.02*out.Tq(kf), yk(k), sprintf('$\\delta=%s$', dl), ...
-            'FontSize', P.FSZ+4, 'VerticalAlignment','middle');
-end
-P.label(P, ax, tf(iC), Cf(iC) + 0.04*ytop, '$U+F$', 'FontSize', P.FSZ+4, ...
-        'Color', P.blues(3,:), 'HorizontalAlignment','center', 'VerticalAlignment','bottom');
-
-% Region labels inside the focal composition, placed between the focal and
-% dashed curves so no line crosses them.
-xr = 0.60*out.Tq(kf);  Fr = interp1(tf, Ff, xr);  Cr = interp1(tf, Cf, xr);
-P.label(P, ax, xr, Fr + 0.35*(Cr - Fr), 'waiting, $U$', 'FontSize', P.FSZ+2, ...
-        'Color', P.blues(3,:), 'HorizontalAlignment','center', 'VerticalAlignment','middle');
-P.label(P, ax, xr, 0.45*Fr, 'lingering, $F$', 'FontSize', P.FSZ+2, ...
-        'Color', 'w', 'HorizontalAlignment','center', 'VerticalAlignment','middle');
-
-fprintf('\nfigL7: crowd composition at p0 = %.2f, q = %.2f\n', ps.p0, q);
-for k = 1:nd
-    mark = '  ';  if k == kf, mark = ' *'; end
-    fprintf(['%s delta=%6.3f  T_q=%7.2f  max(U+F)=%6.1f  max(F)=%5.2f  ' ...
-             'max(U)=%6.1f  max(load)=%5.2f\n'], mark, ...
-        deltas(k), out.Tq(k), out.maxCrowd(k), out.maxF(k), ...
-        out.maxU(k), out.maxLoad(k));
-end
-fprintf('  (* focal, drawn as the stacked composition)\n');
-if out.maxLoad(kf) > 1
-    fprintf(['  note: at the focal delta the arrival rate reaches %.2f mu, ' ...
-             'so eq:qss_crowd sits at the edge of its range; App. J should ' ...
-             'say grazes, not exceeds\n'], out.maxLoad(kf));
-end
-if any(out.maxLoad > 1.10)
-    fprintf(['  note: load exceeds 1.10 at %d of %d values of delta, ' ...
-             'so eq:qss_crowd is outside its own range there\n'], ...
-            sum(out.maxLoad > 1.10), nd);
-end
-if nover > 0
-    fprintf(['  overlay: %d realizations, peak F per run %d to %d against a ' ...
-             'reduction peak of %.2f;  T_q %.1f to %.1f\n'], ...
-        nover, min(out.overMaxF), max(out.overMaxF), out.maxF(kf), ...
-        min(out.overT), max(out.overT));
-    if max(out.overMaxF) < 1.5*out.maxF(kf)
-        fprintf(['  the realizations track the mean closely, so the overlay ' ...
-                 'is not earning its ink; drop it rather than keeping it ' ...
-                 'for decoration\n']);
-    end
-end
-if out.maxF(kf) > 5
-    warning('figL7:scentersLarge', ...
-        ['max(F) = %.1f at the focal delta; the no-capacity claim is ' ...
-         'scoped to F, so check Sec. 4.2 still reads correctly'], out.maxF(kf));
-end
-% Inset, the crowd at the donor, with scenting and waiting bees mixed.
-inset_crowd(h, P);
-P.export(P, 'figL7', outdir, h);
+out = struct('r',res.r,'total',res.total,'Tnone',res.Tnone, ...
+             'rmin',rmin,'tmin',tmin,'rmin_bracket',bracket, ...
+             'base_growth',res.Tnone(end)/res.Tnone(1));
+fprintf(['figT3: benefit %.1f%% at r=1, minimum %.1f%% at r=%.2f ' ...
+         '(bracketed by %g and %g), %.1f%% at r=%g\n'], ...
+        res.total(1),tmin,rmin,bracket(1),bracket(2),res.total(end),res.r(end));
+fprintf('       unaided feeding time grows by a factor %.2f\n',out.base_growth);
+% Inset, a fast and a slow donor. The fast donor carries the scenters and the
+% strong cue, and searchers stream toward it.
+inset_twodonor(h, P);
+P.export(P, 'figT3', outdir, h);
 end
 
 % ------------------------------------------------------------------------
-function inset_crowd(h, P)
-%INSET_CROWD  Donor crowd icon, in the upper right beside the U+F label.
+function inset_twodonor(h, P)
+%INSET_TWODONOR  Two-donor sketch, in the empty upper left above the total.
 K = inset_kit();
-ax = K.axes(h, P, [17.0 15.0 4.2 2.4]);
-xd = 2.1;  yd = 1.2;
-K.donor(ax, xd, yd, 0.24);
-% Scenting and waiting bees are mixed around the donor, since random-order
-% service does not distinguish them by position.
-a = [30 90 150 210 270 330]*pi/180;
-kind = {'wait','scent','wait','wait','scent','wait'};
-for k = 1:numel(a)
-    K.bee(ax, xd + 0.72*cos(a(k)), yd + 0.62*sin(a(k)), a(k) + pi, 0.7, kind{k});
-end
+ax = K.axes(h, P, [4.3 9.6 7.0 6.0]);
+y0 = 1.4;  x1 = 4.9;  x2 = 1.2;
+K.tent(ax, x1 - 0.15, 1.5, y0, 3.6, 0.22, 0.90);
+K.tent(ax, x2 + 0.1, 0.75, y0, 1.1, 0.68, 0.96);
+K.track(ax, 0.1, 7.0, y0);
+K.donor(ax, x1, y0, 0.4);
+K.donor(ax, x2, y0, 0.2);
+B = [x1-1.1 y0+0.34 -0.25; x1+1.0 y0+0.36 pi+0.25; x1-0.95 y0-0.38 0.3; x1+0.95 y0-0.38 pi-0.3];
+for k = 1:size(B,1), K.bee(ax, B(k,1), B(k,2), B(k,3), 0.75, 'scent'); end
+K.bee(ax, x2 + 0.55, y0 + 0.3, pi + 0.3, 0.6, 'scent');
+S = [2.45 y0 0; 3.2 y0 0; 6.65 y0 pi];
+for k = 1:size(S,1), K.bee(ax, S(k,1), S(k,2), S(k,3), 0.7, 'search'); end
+K.label(ax, x1, y0 - 0.5, '$\mu_1$', P, 'top');
+K.label(ax, x2, y0 - 0.3, '$\mu_2$', P, 'top');
 end
 
 % =========================================================================
-% Panel (c), figL5. Optimal abandonment against fed fraction.
+% Panel (b), figT1. Feeding time and cue contrast against abandonment.
 % =========================================================================
-function out = panel_c(psList, cfg, outdir, qgrid, dgrid)
-%PANEL_C  How the optimum moves with cue quality.
-%   delta*(q) at three baseline offsets p_0, with the same values, line styles
-%   and colors (P.p0sty, P.p0cols) as Fig. 4(a), so no legend is needed.
+function out = panel_b(G2, cfg0, outdir, r, dgrid, q, tol)
+%PANEL_B  Cue contrast and feeding time against abandonment rate, at fixed
+%   service asymmetry. The contrast Lambda_1/Lambda_2 peaks close to the delta
+%   that minimizes T_q. delta^ast is set by where the cue discriminates, not
+%   by where it is sharpest.
 %
-%   The panel tests whether cue quality sets how much lingering is worth
-%   rather than whether it is worth anything. If so, no curve terminates
-%   partway across q. A terminating curve means Fig. 4(c) needs p_0 as an axis.
-%   The speedup at p_0 = 1.52, q = 0.1 is about one percent, the level Fig. 4(c)
-%   contours. Report the margin along with the verdict.
+%   Both optima are refined off the grid. One step of dgrid is a factor of
+%   about 1.2, so grid argmins in adjacent cells differ by about 21 percent
+%   from quantization alone.
 %
-%   The ordering of delta* with p_0 reverses in q. A noisier cue is abandoned
-%   sooner when a tenth of the colony must be fed and held longer when nearly
-%   all must be. The large-delta expansion predicts this, since the benefit
-%   coefficient carries a factor q*N and the congestion cost does not. The
-%   payoff falls with p_0 at every q. State the reversal in the caption.
+%   eq:contrast_condition locates where the contrast is stationary at a given
+%   representative parameters, not where T_q is least. The panel shows that the two fall
+%   together to within the resolution of the sweep. out.sep_steps gives the
+%   separation in grid spacings and out.sep_rel as a fraction. Quote the
+%   tolerance with either.
 %
-%   Speedup is shown in an inset rather than as marker color.
-%   P.CLIM_SPEEDUP applies to Fig. 4(c) only.
-%
-%   Every curve is at the run's traffic ratio rho = lam0*N/mu, printed and
-%   returned in out.rho. State it in the caption.
+%   sep_rel must stay under tol with both optima refined. If it does not,
+%   refine dgrid near the optimum before treating the separation as real,
+%   since a coarse grid biases each refinement toward its bracket.
 
-if nargin < 3, outdir = 'output'; end
-if nargin < 4, qgrid = linspace(0.1, 0.95, 22); end
-if nargin < 5, dgrid = logspace(-2.5, 1.0, 44); end
+if nargin < 3 || isempty(outdir), outdir = 'output'; end
+if nargin < 4 || isempty(r),      r = 20; end
+if nargin < 5 || isempty(dgrid),  dgrid = logspace(-2.5, 1.0, 44); end
+if nargin < 6 || isempty(q),      q = 0.5; end
+if nargin < 7 || isempty(tol),    tol = 0.25; end   % one grid step is 0.21
 
-M = lingermodel();  P = linger_style();
-rho = cfg.lam0*cfg.N/cfg.mu;
-np  = numel(psList);
+M2 = twodonor();  M = lingermodel();  P = linger_style();
+cfg = cfg0;  cfg.mu2 = cfg0.mutot/(1+r);  cfg.mu1 = r*cfg.mu2;
 
-dstar = nan(np, numel(qgrid));
-spd   = zeros(np, numel(qgrid));
-chk   = zeros(np, numel(qgrid));
-for i = 1:np
-    for k = 1:numel(qgrid)
-        [dopt, Topt, Tinf] = M.optDelta(psList{i}, cfg, qgrid(k), dgrid);
-        dstar(i,k) = dopt;
-        spd(i,k)   = 100*max(0, 1 - Topt/Tinf);
-        chk(i,k)   = Tinf/(log(1/(1-qgrid(k)))/cfg.lam0);
-    end
-    fprintf('  p0 = %.2f done\n', psList{i}.p0);
+T = zeros(size(dgrid));  C = zeros(size(dgrid));
+F1 = zeros(size(dgrid)); F2 = zeros(size(dgrid));
+for j = 1:numel(dgrid)
+    [T(j), C(j), F1(j), F2(j)] = sweepPoint(dgrid(j), G2, cfg, q, M2);
 end
 
+% ---- refine both optima off the grid ------------------------------------
+% refineDelta minimizes, so the contrast is passed negated. Each call costs a
+% few ODE solves.
+fT = @(d) M2.Tq(d, G2, cfg, 'full', q);
+fC = @(d) -contrastAt(d, G2, cfg, q, M2);
+[dT, Topt] = M.refineDelta(fT, dgrid, T);
+[dC, mCopt] = M.refineDelta(fC, dgrid, -C);
+Copt = -mCopt;
+
+step     = dgrid(2)/dgrid(1);
+sep_rel  = abs(dT/dC - 1);
+sep_step = abs(log(dT/dC))/log(step);
+
+[~, kT] = min(T);  [~, kC] = max(C);        % grid argmins, for the markers
+[~, jT] = min(abs(dgrid - dT));
+F1o = interp1(dgrid, F1, dT);  F2o = interp1(dgrid, F2, dT);
+
+% ---- panel ---------------------------------------------------------------
+% Only the contrast peak is marked. The dotted rule sits at the refined
+% feeding-time optimum, so the gap between marker and rule is sep_rel.
+h = P.figure(P);                            % handle captured, not left to gcf
+% Two overlaid axes rather than yyaxis, which copyobj cannot copy at assembly.
+POS = [0.17 0.17 0.66 0.73];
+ax  = axes(h, 'Units','normalized', 'Position', POS, ...
+           'PositionConstraint','innerposition');
+hold(ax, 'on');
+semilogx(ax, dgrid, T, '-', 'Color', P.greens(4,:), 'LineWidth', P.LW);
+xline(ax, dT, ':', 'Color', [0.3 0.3 0.3], 'LineWidth', P.ALW);
+set(ax, 'XScale','log');
+xlabel(ax, 'abandonment rate $\delta$','Interpreter','latex','FontSize',P.LSZ);
+ylabel(ax, 'half-colony feeding time $T_{1/2}$','Interpreter','latex', ...
+       'FontSize',P.LSZ);
+xlim(ax, [min(dgrid) max(dgrid)]);
+ylim(ax, 10*[floor(0.98*min(T)/10), ceil(1.02*max(T)/10)]);   % room for the line width at the minimum
+P.axes(P, ax);
+set(ax, 'YColor', P.greens(4,:));
+
+axr = axes(h, 'Units','normalized', 'Position', POS, 'Color','none', ...
+           'YAxisLocation','right', 'XScale','log');
+hold(axr, 'on');
+plot(axr, dgrid, C, '-', 'Color', P.blues(3,:), 'LineWidth', P.LW);
+plot(axr, dC, Copt, 'o', 'Color', P.blues(3,:), ...
+     'MarkerFaceColor','w', 'MarkerSize', 14, 'LineWidth', P.ALW);
+ylabel(axr, 'cue contrast $\widetilde\Lambda_1/\widetilde\Lambda_2$', ...
+       'Interpreter','latex','FontSize',P.LSZ);
+xlim(axr, xlim(ax));
+P.axes(P, axr);
+set(axr, 'YColor', P.blues(3,:), 'XColor','none', 'Color','none');
+set([ax axr], 'PositionConstraint','innerposition', 'Position', POS);
+
+yl = ylim(axr);
+text(axr, dT, yl(2), '$\delta^\ast$', 'Interpreter','latex', ...
+     'FontSize', P.LSZ, 'Color', [0.6 0.6 0.6], ...
+     'HorizontalAlignment','left', 'VerticalAlignment','bottom');
+
+out = struct('r',r,'delta',dgrid,'T',T,'contrast',C,'F1',F1,'F2',F2, ...
+             'dT',dT,'dC',dC,'Topt',Topt,'Copt',Copt, ...
+             'dT_grid',dgrid(kT),'dC_grid',dgrid(kC), ...
+             'sep_rel',sep_rel,'sep_steps',sep_step,'tol',tol, ...
+             'step',step,'F1opt',F1o,'F2opt',F2o,'q',q);
+
+fprintf(['figT1: r = %g, T minimized at delta = %.4f, contrast maximized at ' ...
+         '%.4f\n'], r, dT, dC);
+fprintf(['       separation %.1f%% of the optimum, %.2f grid steps ' ...
+         '(one step = %.1f%%)  ->  %s\n'], 100*sep_rel, sep_step, ...
+        100*(step-1), string(sep_rel <= tol));
+fprintf('       on the grid alone they sat at %.4f and %.4f, %d cells apart\n', ...
+        dgrid(kT), dgrid(kC), abs(kT-kC));
+fprintf('       at the optimum F1 = %.2f, F2 = %.2f\n', F1o, F2o);
+
+if sep_rel > tol
+    warning('figT1:optimaSeparate', ...
+        ['the contrast maximum and the feeding-time minimum differ by %.1f%%, ' ...
+         'above the %.0f%% tolerance, with both refined off the grid.  The ' ...
+         'caption claims they fall together; refine dgrid near the optimum ' ...
+         'before treating the separation as real'], 100*sep_rel, 100*tol);
+end
+if sep_step < 0.5 && abs(kT-kC) >= 1
+    fprintf(['       note: the refinement moved them into the same cell, so ' ...
+             'the grid argmins were quantization and not a result\n']);
+end
+
+P.export(P, 'figT1', outdir, h);
+end
+
+% ------------------------------------------------------------------------
+function [T, C, F1, F2] = sweepPoint(d, G2, cfg, q, M2)
+[T, sol] = M2.Tq(d, G2, cfg, 'full', q);
+y = sol.y(:,end);  F1 = y(3);  F2 = y(5);
+[L1, L2] = M2.rates(G2, F1, F2, 'full');
+C = L1/L2;
+end
+
+function C = contrastAt(d, G2, cfg, q, M2)
+%CONTRASTAT  Cue contrast at the feeding threshold, as a function of delta.
+%   The fed populations are read at the stopping event, matching
+%   twodonor.decompose, so the contrast is a representative-parameter quantity, not a
+%   run average.
+[~, C] = sweepPoint(d, G2, cfg, q, M2);
+end
+
+% =========================================================================
+% Panel (c), figT2. Optimal abandonment versus service asymmetry.
+% =========================================================================
+function out = panel_c(res, outdir)
+%PANEL_C  Optimal abandonment rate against service asymmetry.
+%   Uses the donor-specific optimum saved by M2.sweep; no comparison cue.
+if nargin < 2 || isempty(outdir), outdir = 'output'; end
+P = linger_style();
 h = P.figure(P);
-ax = gca;  hold(ax, 'on')
-for i = 1:np
-    ci = P.p0cols(min(i,3),:);
-    plot(ax, qgrid, dstar(i,:), P.p0sty{min(i,3)}, 'Color', ci, 'LineWidth', P.LW);
-    scatter(ax, qgrid(2:4:end), dstar(i,2:4:end), 60, ci, 'filled', ...
-            'MarkerEdgeColor','k', 'LineWidth', 0.9);
-end
-set(ax, 'YScale', 'log');
-% Curve labels at the right edge, where the fan is widest. No legend, since
-% the labels in Fig. 4(a) serve as the key.
-ylab = dstar(:,end);   % spread the end labels so they do not touch
-if np == 3
-    ylab(1) = ylab(1)*1.4;
-    ylab(3) = ylab(3)/1.3;
-end
-for i = 1:np
-    text(ax, max(qgrid)+0.015, ylab(i), sprintf('$p_0=%.2f$', psList{i}.p0), ...
-         'Interpreter','latex', 'FontSize', P.FSZ+2, 'Color', P.p0cols(min(i,3),:), ...
-         'HorizontalAlignment','left', 'VerticalAlignment','middle');
-end
-xlabel('fed fraction $q$','Interpreter','latex','FontSize',P.LSZ);
+ax = gca;
+loglog(ax, res.r, res.dfull, '-', 'Color', P.greens(4,:), 'LineWidth', P.LW);
+hold(ax, 'on');
+plot(ax, res.r, res.dfull, 'o', 'Color', P.greens(4,:), 'MarkerFaceColor','w', ...
+     'MarkerSize', 10, 'LineWidth', P.ALW-0.5);
+xlabel('service asymmetry $r=\mu_1/\mu_2$','Interpreter','latex','FontSize',P.LSZ);
 ylabel('optimal abandonment rate $\delta^\ast$','Interpreter','latex','FontSize',P.LSZ);
-xlim([min(qgrid)-0.02, max(qgrid)+0.34]);   % right margin holds the p_0 labels
-ylim([0.45*min(dstar(:)), 1.6*max(dstar(:))]);
+xlim([min(res.r) max(res.r)]);
+ylim([0.8*min(res.dfull) 1.25*max(res.dfull)]);
 P.axes(P);
-set(ax, 'Position', [0.17 0.15 0.78 0.73], 'XTick', 0.2:0.2:1);
-
-% inset with the payoff at the optimum, same styles. Placed to clear the p_0
-% labels at the right edge.
-axi = axes('Position', insetPos(ax));
-hold(axi,'on');
-for i = 1:np
-    plot(axi, qgrid, spd(i,:), P.p0sty{min(i,3)}, 'Color', P.p0cols(min(i,3),:), ...
-         'LineWidth', P.LW-1.2);
+yt = [0.01 0.02 0.05 0.1 0.2 0.3 0.5 1]; yl = ylim(ax);
+yt = yt(yt >= yl(1) & yt <= yl(2));
+set(ax, 'YTick', yt, 'YTickLabel', arrayfun(@(y) sprintf('$%g$', y), yt, 'uni', 0));
+set(ax, 'PositionConstraint','innerposition', 'Position', [0.18 0.17 0.78 0.73]);
+% Dotted line at the r of minimum benefit in panel (a), where the slower donor
+% first receives more searchers than it can serve.
+[~, kmin] = min(res.total);  rmin = res.r(kmin);
+plot(ax, [rmin rmin], ylim(ax), ':', 'Color', [0.45 0.45 0.45], 'LineWidth', P.ALW-0.5);
+uistack(findobj(ax,'Type','line','Color',P.greens(4,:)),'top');
+d = res.dfull(:).';
+q.nrep = sum(abs(diff(d))./max(abs(d(1:end-1)),eps) < 1e-9);
+q.nlev = numel(uniquetol(d,1e-9,'DataScale',max(abs(d))));
+if q.nrep > 0
+    warning('figT2:quantized','delta* repeats at %d consecutive r; check optimum refinement.',q.nrep);
 end
-xlim(axi,[min(qgrid) max(qgrid)]);
-ylim(axi,[0 1.1*max(spd(:))]);
-set(axi, 'FontSize', P.FSZ-10, 'LineWidth', P.ALW-0.6, 'TickDir','out', ...
-    'Box','off', 'TickLabelInterpreter','latex', ...
-    'XTick', [0.2 0.4 0.6 0.8], 'Color','none');
-xlabel(axi, 'fed fraction $q$', 'Interpreter','latex', 'FontSize', P.FSZ-8);
-ylabel(axi, 'speedup (\%)', 'Interpreter','latex', 'FontSize', P.FSZ-8);
-
-out = struct('q',qgrid,'dstar',dstar,'speedup',spd,'Tinf_check',chk, ...
-             'rho',rho,'p0',cellfun(@(s) s.p0, psList), ...
-             'g1',cellfun(@(s) s.g1, psList));
-fprintf('rho for this panel: %.3f\n', rho);
-fprintf('Tq(inf) check, max deviation: %.2e\n', max(abs(chk(:)-1)));
-for i = 1:np
-    fprintf('p0 = %.2f (g1 = %.3f): delta* %.3f -> %.3f, speedup %.1f%% -> %.1f%%\n', ...
-        psList{i}.p0, psList{i}.g1, dstar(i,1), dstar(i,end), spd(i,1), spd(i,end));
-end
-if any(~isfinite(dstar(:)))
-    fprintf(['WARNING: delta* undefined at %d of %d points; a curve dies ' ...
-             'partway across q, so cue quality CAN extinguish the optimum ' ...
-             'and figL4 needs p_0 as an axis\n'], ...
-            sum(~isfinite(dstar(:))), numel(dstar));
-end
-out.margin = min(spd(:));
-fprintf('smallest speedup anywhere on the sweep: %.1f%% (figL4 contours 1%%)\n', out.margin);
-if out.margin < 2
-    fprintf(['  the p_0-independence of rho*(q) holds to within about ' ...
-             'a percent\n']);
-end
-ordD = all(diff(dstar,1,1) > 0, 'all');      % worse cue -> abandon sooner
-ordS = all(diff(spd,1,1)  < 0, 'all');       % worse cue -> smaller payoff
-fprintf('ordering with p_0: delta* monotone %d, speedup decreasing %d\n', ordD, ordS);
-if ~ordD && ordS
-    kx = find(any(diff(sign(diff(dstar,1,1)),1,2),1), 1);
-    fprintf(['the delta* ordering reverses in q: a noisier cue is ' ...
-             'abandoned sooner at small q and held longer at large q, ' ...
-             'because the benefit coefficient in the large-delta expansion ' ...
-             'carries a factor q*N and the congestion cost does not. Only ' ...
-             'the payoff ordering is monotone in p_0\n']);
-    if ~isempty(kx)
-        fprintf('  the curves cross near q = %.2f\n', qgrid(kx));
-    end
-elseif ~ordS
-    fprintf(['the speedup ordering is not monotone in p_0, which the ' ...
-             'expansion does not predict\n']);
-end
-P.export(P, 'figL5', outdir, h);
-end
-
-function pos = insetPos(ax)
-%INSETPOS  Upper right inset, inside the parent axes with a margin that
-%   clears the p_0 labels at the right edge.
-p   = get(ax, 'Position');
-pos = [p(1)+0.50*p(3), p(2)+0.66*p(4), 0.40*p(3), 0.30*p(4)];
+out = struct('r',res.r,'dfull',res.dfull,'quant_full',q, ...
+             'range_factor',max(d)/min(d));
+fprintf('figT2: optimal abandonment varies by a factor %.2f over r=%g to %g\n', ...
+        out.range_factor,res.r(1),res.r(end));
+P.export(P, 'figT2', outdir, h);
 end

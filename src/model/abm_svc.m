@@ -14,7 +14,7 @@ function T = abm_svc(M, delta, G, ps, cfg, q, seed, svc)
 %   svc is a zero-argument sampler returning one service interval. The default
 %   is exponential, which by memorylessness matches abm in distribution but
 %   not path by path, since the random stream differs. The exponential arm of
-%   Fig. 10(c) is therefore a control.
+%   Fig. 9(c) is therefore a control.
 %
 %   The service clock idles. tsvc is infinite while the donor is empty and is
 %   set when the aggregation next becomes occupied. This is immaterial for
@@ -23,7 +23,7 @@ function T = abm_svc(M, delta, G, ps, cfg, q, seed, svc)
 %   A fed bee drawn for service consumes the event and produces nothing.
 %   Under non-exponential service that wasted event also consumes a full
 %   service interval, which is the mechanism by which shape can matter and
-%   what Fig. 10(c) tests.
+%   what Fig. 9(c) tests.
 %
 %   The search step is capped at 1/(mu + delta*N), the mean thinning interval
 %   in abm, so the O(dt^2) bias from resolving crowd events at the end of an
