@@ -6,13 +6,13 @@ Honeybees share food mouth to mouth (trophallaxis), and a hungry bee must first 
 
 ## Citation
 
-William Magrogan, Orit Peleg, and Zachary P. Kilpatrick. Chemotactic recruitment offsets congestion in honeybee trophallaxis. Journal TBD (2026).
+William Magrogan, Orit Peleg, and Zachary P. Kilpatrick. Chemotactic recruitment offsets congestion in honeybee trophallaxis. Submitted to PRX Life (2026).
 
 ```bibtex
 @article{magrogan2026chemotactic,
   author  = {Magrogan, William and Peleg, Orit and Kilpatrick, Zachary P.},
   title   = {Chemotactic recruitment offsets congestion in honeybee trophallaxis},
-  journal = {TBD},
+  journal = {PRX Life, submitted},
   year    = {2026}
 }
 ```

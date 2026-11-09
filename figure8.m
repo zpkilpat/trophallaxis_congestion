@@ -1,5 +1,5 @@
 function out = figure8(varargin)
-%FIGURE6 Reproduce the three panels of Figure 8 (the averaged recruitment gain)
+%FIGURE8 Reproduce the three panels of Figure 8 (the averaged recruitment gain)
 %   and assemble the lettered figure.
 %
 % Usage

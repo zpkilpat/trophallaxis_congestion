@@ -1,5 +1,5 @@
 function out = figure7(varargin)
-%FIGURE5 Reproduce Figure 7 (search for one donor across parameters).
+%FIGURE7 Reproduce Figure 7 (search for one donor across parameters).
 %
 % Usage
 %   figure7

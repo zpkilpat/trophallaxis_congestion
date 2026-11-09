@@ -1,5 +1,5 @@
 function out = figure3(varargin)
-%FIGURE4 Reproduce the three panels of Figure 3 (recruitment and congestion at
+%FIGURE3 Reproduce the three panels of Figure 3 (recruitment and congestion at
 %   one donor) and assemble the lettered figure output/figs/fig3.pdf.
 %
 % Usage

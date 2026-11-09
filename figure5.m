@@ -1,5 +1,5 @@
 function out = figure5(varargin)
-%FIGURE6 Reproduce the three panels of Figure 5 (competing donors) and assemble
+%FIGURE5 Reproduce the three panels of Figure 5 (competing donors) and assemble
 %   the lettered figure output/figs/fig5.pdf.
 %
 % Usage

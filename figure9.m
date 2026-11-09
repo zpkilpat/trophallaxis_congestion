@@ -1,5 +1,5 @@
 function out = figure9(varargin)
-%FIGURE7 Reproduce the three panels of Figure 9 (limits and robustness)
+%FIGURE9 Reproduce the three panels of Figure 9 (limits and robustness)
 %   and assemble the lettered figure.
 %
 % Usage
@@ -15,8 +15,8 @@ function out = figure9(varargin)
 %
 % Caches. The single-donor gain tables and the service-law and reduction-error
 % ensembles are cached in outdir under stamped keys. The
-% two-donor table is read from output/figure3/figure3_twogain_cache.mat and
-% the two-donor ensemble from output/figure3/figT5_abm.mat. Neither is
+% two-donor table is read from output/figure5/figure5_twogain_cache.mat and
+% the two-donor ensemble from output/figure6/figT5_abm.mat. Neither is
 % written. A fast run writes its own caches with a _fast suffix.
 
 addpath(genpath(fullfile(fileparts(mfilename('fullpath')), 'src')));

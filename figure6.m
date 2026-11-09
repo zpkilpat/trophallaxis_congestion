@@ -1,5 +1,5 @@
 function out = figure6(varargin)
-%FIGURE7 Reproduce the three panels of Figure 6 (allocation sets the optimal
+%FIGURE6 Reproduce the three panels of Figure 6 (allocation sets the optimal
 %   abandonment rate) and assemble the lettered figure output/figs/fig6.pdf.
 %
 % Usage

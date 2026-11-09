@@ -1,5 +1,5 @@
 function out = figure4(varargin)
-%FIGURE5 Reproduce the three panels of Figure 4 (feeding is fastest at an
+%FIGURE4 Reproduce the three panels of Figure 4 (feeding is fastest at an
 %   intermediate abandonment rate) and assemble the lettered figure
 %   output/figs/fig4.pdf.
 %

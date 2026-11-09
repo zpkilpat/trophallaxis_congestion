@@ -1,0 +1,20 @@
+# Panel exports and cached Monte Carlo ensembles (see README, Caches)
+output/figure*/
+output/run_all.log
+*.mat
+
+# Keep the assembled figures as PDF and PNG only
+output/figs/*.fig
+output/figs/*.png
+
+# Build products
+build/
+
+# MATLAB autosave and editor backups
+*.asv
+*.autosave
+*.m~
+
+# System and local notes
+.DS_Store
+CLAUDE.md
