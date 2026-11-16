@@ -39,6 +39,8 @@ matlab -batch "run_all"
 
 `figureN` draws Fig. N of the article. It writes the panels to `output/figureN/` and the lettered figure to `output/figs/figN.pdf`. Figs. 3 and 4 share the single-donor gain tables, and Figs. 5 and 6 share the two-donor arrival table; each is cached in the figure's own folder. `figure9` reads the two-donor table that `figure5` caches, and `run_all` runs them in order.
 
+The figures in `output/figs` have their text scaled by 1.07 with `scale_figure_fonts` (in `tools/`), which reopens the saved `.fig` files and re-exports them. It changes only font sizes, not the plotted data. Run it after `run_all` to match the published figures.
+
 ## Figures
 
 | file | article figure | contents |
@@ -74,6 +76,7 @@ Times are for MATLAB R2023b on a laptop with an 8-core Intel Core i9. Most of a 
 .
 ├── run_all.m               regenerate every figure, then run selftest
 ├── figure1.m ... figure9.m one file per figure, panels as local functions
+├── tools/scale_figure_fonts.m  rescale figure text in the saved .fig files without rerunning
 ├── src/
 │   ├── model/              search, gain, reduced dynamics, individual-based models
 │   │   ├── afpt.m          exact first passage on the ring with a displaced tent cue
