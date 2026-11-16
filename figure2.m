@@ -7,7 +7,7 @@ function out = figure2(varargin)
 %   figure2('outdir','output/figure2')
 %
 % Panel map
-%   (a) fig2a   MFPT ratio T(x;beta)/T(x;0) over start position and turning rate
+%   (a) fig2a   point-donor MFPT ratio T(x;beta)/T(x;0) against start position
 %   (b) fig2b   averaged MFPT versus cue reliance gamma at several cue offsets
 %   (c) fig2c   gain surface W(gamma,p) with the optimal-reliance ridge overlaid
 %
@@ -57,75 +57,47 @@ if ~isfolder(outdir), mkdir(outdir); end
 A = afpt();  P = linger_style();
 out = struct('prm',prm);
 
-% Finite-width parameters for panel (a). These differ from kbar because the
-% ratio plane needs a resolved interaction region. Here 2*kappa*a = 0.96.
-FA = 0.4;  FK = 1.2;  v = prm.v;
-out.finite = struct('a',FA,'kappa',FK,'kbar',2*FK*FA);
-
-%% (a) fig2a --------------------------------------------------------------
-xg = linspace(-pi, pi, 361);
-bg = logspace(-2, 1, 121);
-T0 = Tfinite(xg, 0, v, FA, FK);
-R  = zeros(numel(bg), numel(xg));
-for i = 1:numel(bg)
-    R(i,:) = Tfinite(xg, bg(i), v, FA, FK) ./ T0;
+% Point donor. With a constant reversal rate beta the mean first-passage time
+% from position x, averaged over headings, is T(x;beta) = C/2 - beta*y^2/v^2
+% with y = pi - |x| and C/2 = pi/(v*eta) + beta*pi^2/v^2, so that
+% T(x;0) = pi/(v*eta) at every start and
+%   T(x;beta)/T(x;0) = 1 + eta*beta*|x|*(2*pi - |x|)/(pi*v).
+% The ring average of the ratio is 1 + 2*pi*eta*beta/(3*v).
+v   = prm.v;  eta = tanh(prm.kbar/(2*v));
+xg  = linspace(-pi, pi, 721);
+bl  = [0.5 1 2 4];
+cols = P.greens(3:6,:);
+h = P.figure(P);  ax = gca;  hold(ax,'on');
+Rall = zeros(numel(bl), numel(xg));  Rbar = zeros(1,numel(bl));
+for i = 1:numel(bl)
+    R = 1 + eta*bl(i)*abs(xg).*(2*pi - abs(xg))/(pi*v);
+    Rall(i,:) = R;
+    Rbar(i)   = 1 + 2*pi*eta*bl(i)/(3*v);
+    plot(ax, xg, R, '-', 'Color', cols(i,:), 'LineWidth', P.LW);
+    plot(ax, [-pi pi], Rbar([i i]), ':', 'Color', cols(i,:), 'LineWidth', P.ALW);
 end
-
-% The beta = 0 profile is flat outside the target only. Inside, the MFPT
-% follows cosh(lambda x) and dips toward the center, so flatness is tested
-% outside the target.
-out_ = abs(xg) > FA;
-flat = max(abs(T0(out_)/mean(T0(out_)) - 1));
-if flat > 1e-10
-    warning('fig2:notFlatAtZero', ...
-        ['the beta = 0 profile varies by %.1e OUTSIDE the target; a ' ...
-         'ballistic searcher on a ring has no preferred start there'], flat);
+% Check the closed form against the ring average of the plotted curves.
+for i = 1:numel(bl)
+    assert(abs(trapz(xg, Rall(i,:))/(2*pi) - Rbar(i)) < 1e-4);
 end
-
-% Color limits are symmetric about unity with half-width 1 - min(R). The
-% blue side fills exactly and the red side saturates. State in the caption
-% that the upper end is clipped.
-h = P.figure(P, true);  ax = gca;
-hs = pcolor(ax, xg, log10(bg), R);  set(hs,'EdgeColor','none');
-shading(ax,'interp');  colormap(ax, P.divmap(256));
-cl = 1 - min(R(:));  clim(ax, [1-cl, 1+cl]);
-cb = P.cbar(P, 'time ratio to ballistic, $T(x;\beta)/T(x;0)$');
-cb.Label.FontSize = P.FSZ;
-hold(ax,'on');
-plot(ax, [-FA -FA], log10([min(bg) max(bg)]), ':', 'Color',[.25 .25 .25], 'LineWidth',P.ALW);
-plot(ax, [ FA  FA], log10([min(bg) max(bg)]), ':', 'Color',[.25 .25 .25], 'LineWidth',P.ALW);
-contour(ax, xg, log10(bg), R, [1 1], '-', 'Color','k', 'LineWidth', P.ALW+0.4);
+plot(ax, [0 0], [1 1.26], ':', 'Color', [.25 .25 .25], 'LineWidth', P.ALW);
 xlabel(ax,'start position $x$','Interpreter','latex','FontSize',P.LSZ);
-ylabel(ax,'reversal rate magnitude $\log_{10}\beta$','Interpreter','latex','FontSize',P.LSZ);
-xlim(ax,[-pi pi]);  P.axes(P);
-set(ax,'Position',[0.19 0.14 0.60 0.71]);  cb.Position = [0.81 0.14 0.035 0.71];
-% In-panel guides. The band where turning helps is narrow, so it is pointed
-% to from the red field. The dotted lines are the donor edges.
-tl = @(x,y,str,varargin) text(ax, x, y, str, 'Interpreter','latex', ...
-        'FontSize', P.FSZ-2, varargin{:});
-tl(-2.90, 0.55, {'turning','hurts'}, 'Color','w');
-tl( 0.50, 0.30, {'$\leftarrow$ turning','\ \ \ \ helps'}, 'Color','w');
-tl(-0.68, -1.30, 'donor', 'Color',[.25 .25 .25], 'Rotation',90, ...
-   'HorizontalAlignment','center');
-tl( 0.60, -1.55, {'rare turns,','near ballistic'}, 'Color',[.25 .25 .25]);
-% Band width is measured by linear interpolation of the R = 1 crossings.
-% Counting grid columns would quantize it to the column spacing.
-bw = zeros(size(bg));
-for i = 1:numel(bg)
-    k = find(R(i,:) < 1);
-    if isempty(k), bw(i) = 0; continue; end
-    lo = k(1);  hi = k(end);
-    xl = xg(lo);  xh = xg(hi);
-    if lo > 1,          xl = interp1(R(i,lo-1:lo), xg(lo-1:lo), 1); end
-    if hi < numel(xg),  xh = interp1(R(i,hi:hi+1), xg(hi:hi+1), 1); end
-    bw(i) = xh - xl;
+ylabel(ax,'time ratio $T(x;\beta)/T(x;0)$','Interpreter','latex','FontSize',P.LSZ);
+xlim(ax,[-pi pi]);  ylim(ax,[0.995 1.26]);  P.axes(P);
+set(ax,'XTick',[-pi 0 pi],'XTickLabel',{'$-\pi$','$0$','$\pi$'}, ...
+    'TickLabelInterpreter','latex');
+set(ax,'Position',[0.19 0.14 0.65 0.71]);
+for i = 1:numel(bl)
+    text(ax, pi+0.12, Rall(i,end), sprintf('$\\beta=%g$', bl(i)), ...
+         'Interpreter','latex','FontSize',P.FSZ,'Color',cols(i,:), ...
+         'HorizontalAlignment','left','VerticalAlignment','middle','Clipping','off');
 end
-out.a = struct('x',xg,'beta',bg,'ratio',R,'flatdev',flat,'clim',[1-cl 1+cl], ...
-               'bandwidth',bw,'Rmin',min(R(:)),'Rmax',max(R(:)));
-fprintf(['fig2(a): ratio %.3f to %.3f, color clipped at %.3f;  the sub-unity ' ...
-         'band runs %.4f to %.4f rad wide over the beta sweep (%.2f%% variation)\n'], ...
-        min(R(:)), max(R(:)), 1+cl, min(bw), max(bw), ...
-        100*(max(bw)-min(bw))/max(bw,[],'all'));
+text(ax, -0.12, 1.255, 'donor', 'Interpreter','latex','FontSize',P.FSZ, ...
+     'Color',[.25 .25 .25], 'Rotation',90, 'VerticalAlignment','bottom','HorizontalAlignment','right');
+text(ax, 0.3, 1.235, '$\cdots$ ring mean', 'Interpreter','latex', ...
+     'FontSize',P.FSZ, 'Color',[.3 .3 .3], 'HorizontalAlignment','left');
+out.a = struct('x',xg,'beta',bl,'ratio',Rall,'ringaverage',Rbar,'eta',eta);
+fprintf('fig2(a): point donor, eta=%.5f, ring-average ratio %s\n', eta, mat2str(Rbar,5));
 P.export(P,'fig2a',outdir,h);
 
 %% (b) fig2b --------------------------------------------------------------
@@ -200,19 +172,6 @@ P.export(P,'fig2c',outdir,h);
 end
 
 % ------------------------------------------------------------------------
-function T = Tfinite(x, beta, v, a, kappa)
-%TFINITE  Direction-averaged MFPT for a finite-width target, closed form.
-%   The closed-form finite-target MFPT, summed over headings and halved. At beta = 0
-%   it is independent of x outside the target, which the caller checks.
-lam = sqrt((2*beta+kappa)*kappa)/v;
-out = 2/kappa + 2*(pi-a)*lam./(kappa*tanh(lam*a));
-T   = zeros(size(x));
-r   = x >  a;   l = x < -a;   c = ~r & ~l;
-T(r) = out + 4*pi*beta/v^2*(x(r)-a) + 2*beta/v^2*(a^2 - x(r).^2);
-T(l) = out - 4*pi*beta/v^2*(x(l)+a) + 2*beta/v^2*(a^2 - x(l).^2);
-T(c) = 2/kappa + 2*(pi-a)*lam/(kappa*sinh(lam*a))*cosh(lam*x(c));
-T = T/2;
-end
 
 % ------------------------------------------------------------------------
 function inset_cue(h, P)
