@@ -193,7 +193,7 @@ plot(ax, psop, kop, 'o', 'MarkerSize', 14, 'MarkerFaceColor','w', ...
 P.label(P, ax, 1.03, 0.36, 'support bound', 'Color','w', 'Rotation', 90, ...
         'HorizontalAlignment','center', 'VerticalAlignment','top');
 P.label(P, ax, 0.5*(interp1(kf, psf, 0.3) + interp1(kf, pcf, 0.3)), 0.3, ...
-        '$p^\ast(\overline\kappa)$', 'Color','w', 'Rotation', 90, ...
+        '$p^\ast(\kappa)$', 'Color','w', 'Rotation', 90, ...
         'HorizontalAlignment','center', 'VerticalAlignment','middle');
 P.label(P, ax, interp1(kf, pcf, 0.07) - 0.02, 0.07, '$\gamma^\ast=s_m\sigma$', 'Color','w', ...
         'Rotation', 90, 'HorizontalAlignment','center', 'VerticalAlignment','bottom');
@@ -205,7 +205,7 @@ set(ax, 'YTick', [0.025 0.05 0.1 0.2 0.4 0.8], ...
         'YTickLabel', {'0.025','0.05','0.1','0.2','0.4','0.8'}, ...
         'XTick', 0:0.25:1.5);
 xlabel(ax, 'cue offset $p/\sigma$', 'Interpreter','latex', 'FontSize', P.LSZ);
-ylabel(ax, 'donor absorptivity $\overline\kappa$', 'Interpreter','latex', 'FontSize', P.LSZ);
+ylabel(ax, 'donor absorptivity $\kappa$', 'Interpreter','latex', 'FontSize', P.LSZ);
 P.axes(P, ax);
 set(ax, 'Position', [0.17 0.16 0.62 0.80]);  cb.Position = [0.81 0.16 0.035 0.80];
 
@@ -270,7 +270,7 @@ xline(axL, kop, ':', 'Color', lgt, 'LineWidth', P.ALW);
 xlim(axL, kl);
 set(axL, 'XTick', [0.05 0.1 0.2 0.4 0.8], ...
          'XTickLabel', {'0.05','0.1','0.2','0.4','0.8'}, 'XTickLabelRotation', 0);
-xlabel(axL, 'donor absorptivity $\overline\kappa$', 'Interpreter','latex', 'FontSize', P.LSZ);
+xlabel(axL, 'donor absorptivity $\kappa$', 'Interpreter','latex', 'FontSize', P.LSZ);
 P.axes(P, axL);
 set(axL, 'Position', POS);
 
@@ -386,7 +386,7 @@ errorbar(ax, rmc, D.d, 1.96*D.se, 'o', 'Color', P.blues(3,:), 'MarkerFaceColor',
 set(ax, 'XScale','log');
 xlim(ax, [1 16]);  ylim(ax, [-10 4]);
 set(ax, 'XTick', [1 2 4 8 16], 'XTickLabel', {'$1$','$2$','$4$','$8$','$16$'});
-xlabel(ax, 'absorptivity ratio $\overline\kappa_1/\overline\kappa_2$', 'Interpreter','latex', 'FontSize', P.LSZ);
+xlabel(ax, 'absorptivity ratio $\kappa_1/\kappa_2$', 'Interpreter','latex', 'FontSize', P.LSZ);
 ylabel(ax, 'time difference $(T_1-T_2)/\bar T$ (\%)', 'Interpreter','latex', 'FontSize', P.LSZ);
 P.label(P, ax, 1.1, 1.6, '$\beta_0=0.1$ and $1$', 'Color', cols(2,:), 'VerticalAlignment','bottom');
 P.label(P, ax, 3.0, -6.2, '$\beta_0=10$', 'Color', cols(3,:), 'HorizontalAlignment','left');

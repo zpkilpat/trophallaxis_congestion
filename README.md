@@ -99,7 +99,7 @@ Times are for MATLAB R2023b on a laptop with an 8-core Intel Core i9. Most of a 
 
 ## Reference values
 
-For the representative parameters `N = 120`, `mu = 1`, `v = 1`, `beta0 = 1`, `sigma = 0.8`, `s_m = 1`, `kbar = 0.0314`, `p0 = 0.75`. The drivers print these and warn if a value moves.
+For the representative parameters `N = 120`, `mu = 1`, `v = 1`, `beta0 = 1`, `sigma = 0.8`, `s_m = 1`, `kbar = 0.0314` (the donor strength $\kappa$ of the paper), `p0 = 0.75`. The drivers print these and warn if a value moves.
 
 | quantity | value |
 | --- | --- |
